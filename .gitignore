@@ -1,0 +1,53 @@
+# Built application files
+*.apk
+*.aar
+*.ap_
+*.aab
+
+# OS-specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE configuration files
+.idea/
+.project
+.classpath
+.cproject
+.settings/
+*.launch
+*.iml
+*.iws
+*.ipr
+
+# Gradle and Kotlin files
+.gradle/
+.kotlin/
+build/
+/build/
+*/build/
+
+# Local configuration file (sdk path, etc)
+local.properties
+
+# NDK
+ndk/
+obj/
+
+# Keystore files
+*.jks
+*.keystore
+
+# External native build folder generated in Android Studio 2.2 and later
+.externalNativeBuild
+.cxx/
+
+# Output folder for user generated crash summaries
+crashReports
+
+# Google Services (e.g. APIs or Firebase)
+google-services.json

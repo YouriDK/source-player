@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        AppCompat is always available — Material3 is applied entirely by Compose at runtime.
+        This XML theme is used only to set the window background and prevent white flash.
+    -->
+    <style name="Theme.Source" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
+
+    <!-- Splash screen theme using core-splashscreen -->
+    <style name="Theme.Source.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/window_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_source_logo</item>
+        <item name="postSplashScreenTheme">@style/Theme.Source</item>
+    </style>
+</resources>

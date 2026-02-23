@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Source</string>
+    <string name="notification_channel_playback">Playback</string>
+    <string name="notification_channel_playback_desc">Music playback controls</string>
+</resources>
