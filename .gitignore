@@ -51,3 +51,6 @@ crashReports
 
 # Google Services (e.g. APIs or Firebase)
 google-services.json
+
+# Custom ignored files
+BUGS.md
