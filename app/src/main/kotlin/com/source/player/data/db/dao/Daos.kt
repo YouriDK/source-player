@@ -34,6 +34,21 @@ interface SongDao {
   @Query("SELECT * FROM songs WHERE folderPath = :folder ORDER BY title ASC")
   fun getByFolder(folder: String): Flow<List<SongEntity>>
 
+  @Query("SELECT * FROM songs WHERE folderPath = :folder ORDER BY title ASC")
+  suspend fun getByFolderPath(folder: String): List<SongEntity>
+
+  @Query("UPDATE songs SET genre = :genre WHERE folderPath = :folder AND id != :excludeId")
+  suspend fun updateGenreForFolder(genre: String, folder: String, excludeId: Long)
+
+  @Query("UPDATE songs SET artist = :artist WHERE folderPath = :folder AND id != :excludeId")
+  suspend fun updateArtistForFolder(artist: String, folder: String, excludeId: Long)
+
+  @Query("UPDATE songs SET album = :album WHERE folderPath = :folder AND id != :excludeId")
+  suspend fun updateAlbumForFolder(album: String, folder: String, excludeId: Long)
+
+  @Query("UPDATE songs SET year = :year WHERE folderPath = :folder AND id != :excludeId")
+  suspend fun updateYearForFolder(year: Int, folder: String, excludeId: Long)
+
   @Query("SELECT * FROM songs WHERE dateAdded >= :since ORDER BY dateAdded DESC")
   fun getAddedSince(since: Long): Flow<List<SongEntity>>
 
@@ -43,6 +58,9 @@ interface SongDao {
   @Upsert suspend fun upsertAll(songs: List<SongEntity>)
 
   @Update suspend fun update(song: SongEntity)
+
+  @Query("UPDATE songs SET albumArtUri = :uri WHERE id = :id")
+  suspend fun updateArtUri(id: Long, uri: String)
 
   @Query("DELETE FROM songs WHERE id NOT IN (:activeIds)")
   suspend fun deleteOrphans(activeIds: List<Long>)

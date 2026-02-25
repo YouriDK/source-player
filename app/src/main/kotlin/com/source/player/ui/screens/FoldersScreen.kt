@@ -22,8 +22,6 @@ import androidx.navigation.NavController
 import com.source.player.data.db.entity.SongEntity
 import com.source.player.ui.viewmodel.FoldersViewModel
 
-
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FoldersScreen(
@@ -68,7 +66,7 @@ fun FoldersScreen(
                         modifier = Modifier.fillMaxSize().padding(padding),
                         contentPadding = PaddingValues(bottom = 16.dp),
                 ) {
-                        // Breadcrumb trail
+                        // Breadcrumb trail (Stitch-styled chips)
                         item {
                                 Row(
                                         modifier =
@@ -76,43 +74,95 @@ fun FoldersScreen(
                                                         .horizontalScroll(rememberScrollState())
                                                         .padding(
                                                                 horizontal = 16.dp,
-                                                                vertical = 4.dp
+                                                                vertical = 8.dp
                                                         ),
                                         verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 ) {
                                         breadcrumbs.forEachIndexed { index, (label, _) ->
                                                 val isLast = index == breadcrumbs.lastIndex
-                                                Text(
-                                                        text = label,
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        fontWeight =
-                                                                if (isLast) FontWeight.Bold
-                                                                else FontWeight.Normal,
+                                                Surface(
+                                                        onClick = {
+                                                                if (!isLast)
+                                                                        vm.navigateToBreadcrumb(
+                                                                                index
+                                                                        )
+                                                        },
+                                                        shape = MaterialTheme.shapes.small,
                                                         color =
                                                                 if (isLast)
                                                                         MaterialTheme.colorScheme
-                                                                                .primary
+                                                                                .primaryContainer
                                                                 else
                                                                         MaterialTheme.colorScheme
-                                                                                .onSurfaceVariant,
-                                                        modifier =
-                                                                if (!isLast)
-                                                                        Modifier.clickable {
-                                                                                vm.navigateToBreadcrumb(
-                                                                                        index
-                                                                                )
-                                                                        }
-                                                                else Modifier,
-                                                )
+                                                                                .surfaceVariant,
+                                                        modifier = Modifier.height(32.dp),
+                                                ) {
+                                                        Row(
+                                                                modifier =
+                                                                        Modifier.padding(
+                                                                                horizontal = 10.dp,
+                                                                        ),
+                                                                verticalAlignment =
+                                                                        Alignment.CenterVertically,
+                                                                horizontalArrangement =
+                                                                        Arrangement.spacedBy(4.dp),
+                                                        ) {
+                                                                if (index == 0) {
+                                                                        Icon(
+                                                                                Icons.Rounded
+                                                                                        .Folder,
+                                                                                null,
+                                                                                modifier =
+                                                                                        Modifier.size(
+                                                                                                14.dp
+                                                                                        ),
+                                                                                tint =
+                                                                                        if (isLast)
+                                                                                                MaterialTheme
+                                                                                                        .colorScheme
+                                                                                                        .onPrimaryContainer
+                                                                                        else
+                                                                                                MaterialTheme
+                                                                                                        .colorScheme
+                                                                                                        .onSurfaceVariant
+                                                                        )
+                                                                }
+                                                                Text(
+                                                                        text = label,
+                                                                        style =
+                                                                                MaterialTheme
+                                                                                        .typography
+                                                                                        .labelMedium,
+                                                                        fontWeight =
+                                                                                if (isLast)
+                                                                                        FontWeight
+                                                                                                .Bold
+                                                                                else
+                                                                                        FontWeight
+                                                                                                .Normal,
+                                                                        color =
+                                                                                if (isLast)
+                                                                                        MaterialTheme
+                                                                                                .colorScheme
+                                                                                                .onPrimaryContainer
+                                                                                else
+                                                                                        MaterialTheme
+                                                                                                .colorScheme
+                                                                                                .onSurfaceVariant,
+                                                                        maxLines = 1,
+                                                                )
+                                                        }
+                                                }
                                                 if (!isLast) {
-                                                        Text(
-                                                                " › ",
-                                                                style =
-                                                                        MaterialTheme.typography
-                                                                                .bodySmall,
-                                                                color =
+                                                        Icon(
+                                                                Icons.Rounded.ChevronRight,
+                                                                null,
+                                                                modifier = Modifier.size(16.dp),
+                                                                tint =
                                                                         MaterialTheme.colorScheme
-                                                                                .onSurfaceVariant,
+                                                                                .onSurfaceVariant
+                                                                                .copy(alpha = 0.6f),
                                                         )
                                                 }
                                         }

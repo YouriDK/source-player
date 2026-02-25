@@ -1,5 +1,6 @@
 package com.source.player.ui.screens
 
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -12,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -31,11 +33,22 @@ fun SongOptionsSheet(
 ) {
     val playlists by vm.playlists.collectAsState()
     val addedToPlaylistId by vm.addedToPlaylistId.collectAsState()
+    val toastMsg by vm.toastMessage.collectAsState()
     var showPlaylistPicker by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    // Show toast when song is added
+    LaunchedEffect(toastMsg) {
+        toastMsg?.let {
+            Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
+            vm.clearToast()
+        }
+    }
 
     LaunchedEffect(addedToPlaylistId) {
         if (addedToPlaylistId != null) {
             showPlaylistPicker = false
+            vm.resetAddedState()
             onDismiss()
         }
     }

@@ -2,6 +2,7 @@ package com.source.player.ui.screens
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -15,6 +16,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+import com.source.player.ui.theme.AppFont
+import com.source.player.ui.viewmodel.LastFmLoginState
 import com.source.player.ui.viewmodel.SettingsViewModel
 
 // Preset accent colors from Stitch theme palette
@@ -44,9 +47,15 @@ fun SettingsScreen(
   val searchBottom by vm.searchBarAtBottom.collectAsState()
   val rememberTab by vm.rememberLastTab.collectAsState()
   val accentColor by vm.accentColor.collectAsState()
+  val fontFamilyName by vm.fontFamily.collectAsState()
+  val lastFmUser by vm.lastFmUser.collectAsState()
+  val loginState by vm.loginState.collectAsState()
+  val currentAppFont =
+          AppFont.entries.firstOrNull { it.name == fontFamilyName } ?: AppFont.PlusJakartaSans
 
   var showLastFmModal by remember { mutableStateOf(false) }
   var showColorPicker by remember { mutableStateOf(false) }
+  var showFontPicker by remember { mutableStateOf(false) }
 
   Column(
           Modifier.fillMaxSize().systemBarsPadding().verticalScroll(rememberScrollState()),
@@ -66,6 +75,11 @@ fun SettingsScreen(
               Icons.Rounded.Palette,
               subtitle = "#${accentColor.toString(16).uppercase()}"
       ) { showColorPicker = true }
+      SettingsItem(
+              "Font Style",
+              Icons.Rounded.TextFields,
+              subtitle = currentAppFont.label,
+      ) { showFontPicker = true }
     }
 
     SettingsSection("Playback") {
@@ -78,9 +92,11 @@ fun SettingsScreen(
 
     SettingsSection("Last.fm") {
       SettingsSwitch("Scrobbling", Icons.Rounded.Radio, scrobble) { vm.setScrobbling(it) }
-      SettingsItem("Account", Icons.Rounded.AccountCircle, subtitle = "Connect Last.fm") {
-        showLastFmModal = true
-      }
+      SettingsItem(
+              "Account",
+              Icons.Rounded.AccountCircle,
+              subtitle = if (!lastFmUser.isNullOrBlank()) "@$lastFmUser" else "Connect Last.fm",
+      ) { showLastFmModal = true }
       SettingsItem("Image Download", Icons.Rounded.Image, subtitle = artPolicy) {
         val next =
                 when (artPolicy) {
@@ -115,7 +131,30 @@ fun SettingsScreen(
   }
 
   if (showLastFmModal) {
-    LastFmLoginModal(onDismiss = { showLastFmModal = false })
+    LastFmLoginModal(
+            connectedUser = lastFmUser,
+            loginState = loginState,
+            onLogin = { u, p -> vm.loginLastFm(u, p) },
+            onLogout = {
+              vm.logoutLastFm()
+              showLastFmModal = false
+            },
+            onDismiss = {
+              showLastFmModal = false
+              vm.resetLoginState()
+            },
+    )
+  }
+
+  if (showFontPicker) {
+    FontPickerSheet(
+            currentFont = currentAppFont,
+            onFontSelected = {
+              vm.setFontFamily(it.name)
+              showFontPicker = false
+            },
+            onDismiss = { showFontPicker = false },
+    )
   }
 }
 
@@ -235,40 +274,88 @@ fun ColorPickerSheet(
 // ---- Last.fm Login Modal ----
 
 @Composable
-fun LastFmLoginModal(onDismiss: () -> Unit) {
+fun LastFmLoginModal(
+        connectedUser: String?,
+        loginState: LastFmLoginState,
+        onLogin: (String, String) -> Unit,
+        onLogout: () -> Unit,
+        onDismiss: () -> Unit,
+) {
+  // Auto-dismiss on success
+  LaunchedEffect(loginState) { if (loginState is LastFmLoginState.Success) onDismiss() }
+
   var user by remember { mutableStateOf("") }
   var pass by remember { mutableStateOf("") }
+  val isLoading = loginState is LastFmLoginState.Loading
+  val errorMsg = (loginState as? LastFmLoginState.Error)?.message
+  val isConnected = !connectedUser.isNullOrBlank()
+
   AlertDialog(
-          onDismissRequest = onDismiss,
+          onDismissRequest = { if (!isLoading) onDismiss() },
           title = { Text("Last.fm Account") },
           text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-              OutlinedTextField(
-                      value = user,
-                      onValueChange = { user = it },
-                      label = { Text("Username") },
-                      singleLine = true,
-                      modifier = Modifier.fillMaxWidth()
-              )
-              OutlinedTextField(
-                      value = pass,
-                      onValueChange = { pass = it },
-                      label = { Text("Password") },
-                      singleLine = true,
-                      visualTransformation =
-                              androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                      modifier = Modifier.fillMaxWidth(),
-              )
+              if (isConnected) {
+                // Connected state
+                Text(
+                        "Connected as @$connectedUser",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                        "Tap Disconnect to remove your account.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+              } else {
+                // Login form
+                OutlinedTextField(
+                        value = user,
+                        onValueChange = { user = it },
+                        label = { Text("Username") },
+                        singleLine = true,
+                        enabled = !isLoading,
+                        modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                        value = pass,
+                        onValueChange = { pass = it },
+                        label = { Text("Password") },
+                        singleLine = true,
+                        enabled = !isLoading,
+                        visualTransformation =
+                                androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth(),
+                )
+                if (errorMsg != null) {
+                  Text(
+                          errorMsg,
+                          style = MaterialTheme.typography.bodySmall,
+                          color = MaterialTheme.colorScheme.error,
+                  )
+                }
+                if (isLoading) {
+                  Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(Modifier.size(24.dp))
+                  }
+                }
+              }
             }
           },
           confirmButton = {
-            TextButton(
-                    onClick = { /* TODO: authenticate */
-                      onDismiss()
-                    }
-            ) { Text("Connect") }
+            if (isConnected) {
+              TextButton(onClick = onLogout) {
+                Text("Disconnect", color = MaterialTheme.colorScheme.error)
+              }
+            } else {
+              TextButton(onClick = { onLogin(user, pass) }, enabled = !isLoading) {
+                Text("Connect")
+              }
+            }
           },
-          dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+          dismissButton = {
+            TextButton(onClick = { if (!isLoading) onDismiss() }) { Text("Cancel") }
+          },
   )
 }
 
@@ -277,3 +364,69 @@ private fun BorderStroke(
         width: androidx.compose.ui.unit.Dp,
         color: Color
 ): androidx.compose.foundation.BorderStroke = androidx.compose.foundation.BorderStroke(width, color)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FontPickerSheet(
+        currentFont: AppFont,
+        onFontSelected: (AppFont) -> Unit,
+        onDismiss: () -> Unit,
+) {
+  ModalBottomSheet(onDismissRequest = onDismiss) {
+    Column(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 32.dp),
+    ) {
+      Text(
+              "Font Style",
+              style = MaterialTheme.typography.titleLarge,
+              modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+      )
+      Text(
+              "Choose your preferred typeface",
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 8.dp),
+      )
+      HorizontalDivider()
+      AppFont.entries.forEach { font ->
+        val isSelected = font == currentFont
+        ListItem(
+                headlineContent = {
+                  Text(
+                          font.label,
+                          style = MaterialTheme.typography.bodyLarge,
+                  )
+                },
+                leadingContent = {
+                  Text(
+                          "Aa",
+                          style = MaterialTheme.typography.titleMedium,
+                          color =
+                                  if (isSelected) MaterialTheme.colorScheme.primary
+                                  else MaterialTheme.colorScheme.onSurfaceVariant,
+                  )
+                },
+                trailingContent = {
+                  if (isSelected) {
+                    Icon(
+                            Icons.Rounded.Check,
+                            null,
+                            tint = MaterialTheme.colorScheme.primary,
+                    )
+                  }
+                },
+                modifier = Modifier.clickable { onFontSelected(font) },
+                colors =
+                        ListItemDefaults.colors(
+                                containerColor =
+                                        if (isSelected)
+                                                MaterialTheme.colorScheme.primaryContainer.copy(
+                                                        alpha = 0.3f
+                                                )
+                                        else MaterialTheme.colorScheme.surface,
+                        ),
+        )
+      }
+    }
+  }
+}

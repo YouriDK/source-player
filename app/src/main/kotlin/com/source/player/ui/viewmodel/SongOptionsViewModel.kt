@@ -26,49 +26,66 @@ constructor(
         private val controller: PlaybackController,
 ) : ViewModel() {
 
-  val playlists: StateFlow<List<PlaylistEntity>> =
-          playlistDao.getAllFlow().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+        val playlists: StateFlow<List<PlaylistEntity>> =
+                playlistDao
+                        .getAllFlow()
+                        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-  private val _addedToPlaylistId = MutableStateFlow<Long?>(null)
-  val addedToPlaylistId: StateFlow<Long?> = _addedToPlaylistId.asStateFlow()
+        private val _addedToPlaylistId = MutableStateFlow<Long?>(null)
+        val addedToPlaylistId: StateFlow<Long?> = _addedToPlaylistId.asStateFlow()
 
-  fun playSong(song: SongEntity) {
-    controller.setQueueFromEntities(listOf(song), 0)
-  }
+        private val _toastMessage = MutableStateFlow<String?>(null)
+        val toastMessage: StateFlow<String?> = _toastMessage.asStateFlow()
 
-  fun playNext(song: SongEntity) {
-    controller.addNextToQueue(song)
-  }
+        fun resetAddedState() {
+                _addedToPlaylistId.value = null
+        }
 
-  fun addToQueue(song: SongEntity) {
-    val item =
-            androidx.media3.common.MediaItem.Builder()
-                    .setMediaId(song.id.toString())
-                    .setUri(song.path)
-                    .setMediaMetadata(
-                            androidx.media3.common.MediaMetadata.Builder()
-                                    .setTitle(song.title)
-                                    .setArtist(song.artist)
-                                    .setAlbumTitle(song.album)
-                                    .setArtworkUri(
-                                            song.albumArtUri?.let { android.net.Uri.parse(it) }
-                                    )
-                                    .build()
-                    )
-                    .build()
-    controller.addToQueue(item)
-  }
+        fun clearToast() {
+                _toastMessage.value = null
+        }
 
-  fun addSongToPlaylist(songId: Long, playlistId: Long) =
-          viewModelScope.launch {
-            val position = (playlistDao.maxPosition(playlistId) ?: -1) + 1
-            playlistDao.addSongToPlaylist(
-                    PlaylistSongEntity(
-                            playlistId = playlistId,
-                            songId = songId,
-                            position = position
-                    )
-            )
-            _addedToPlaylistId.value = playlistId
-          }
+        fun playSong(song: SongEntity) {
+                controller.setQueueFromEntities(listOf(song), 0)
+        }
+
+        fun playNext(song: SongEntity) {
+                controller.addNextToQueue(song)
+        }
+
+        fun addToQueue(song: SongEntity) {
+                val item =
+                        androidx.media3.common.MediaItem.Builder()
+                                .setMediaId(song.id.toString())
+                                .setUri(song.path)
+                                .setMediaMetadata(
+                                        androidx.media3.common.MediaMetadata.Builder()
+                                                .setTitle(song.title)
+                                                .setArtist(song.artist)
+                                                .setAlbumTitle(song.album)
+                                                .setArtworkUri(
+                                                        song.albumArtUri?.let {
+                                                                android.net.Uri.parse(it)
+                                                        }
+                                                )
+                                                .build()
+                                )
+                                .build()
+                controller.addToQueue(item)
+        }
+
+        fun addSongToPlaylist(songId: Long, playlistId: Long) =
+                viewModelScope.launch {
+                        val position = (playlistDao.maxPosition(playlistId) ?: -1) + 1
+                        playlistDao.addSongToPlaylist(
+                                PlaylistSongEntity(
+                                        playlistId = playlistId,
+                                        songId = songId,
+                                        position = position
+                                )
+                        )
+                        val playlist = playlistDao.getById(playlistId)
+                        _toastMessage.value = "Added to ${playlist?.name ?: "playlist"}"
+                        _addedToPlaylistId.value = playlistId
+                }
 }

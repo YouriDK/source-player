@@ -8,6 +8,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 
 // -------------------------------------------------------------------------
 // Extended color slot — lets every screen reach extra brand tokens
@@ -27,18 +28,18 @@ data class SourceColors(
 )
 
 val LocalSourceColors = staticCompositionLocalOf {
-  SourceColors(
-          accent = SourceBlue,
-          accentDim = SourceBlueDim,
-          surface = Surface,
-          surfaceCard = SurfaceCard,
-          surfaceSheet = SurfaceSheet,
-          onSurfaceMid = OnSurfaceMid,
-          onSurfaceLow = OnSurfaceLow,
-          divider = Divider,
-          error = ErrorRed,
-          success = SuccessGreen,
-  )
+        SourceColors(
+                accent = SourceBlue,
+                accentDim = SourceBlueDim,
+                surface = Surface,
+                surfaceCard = SurfaceCard,
+                surfaceSheet = SurfaceSheet,
+                onSurfaceMid = OnSurfaceMid,
+                onSurfaceLow = OnSurfaceLow,
+                divider = Divider,
+                error = ErrorRed,
+                success = SuccessGreen,
+        )
 }
 
 // -------------------------------------------------------------------------
@@ -78,21 +79,22 @@ private fun lightScheme(accent: Color) =
 fun SourceTheme(
         darkTheme: Boolean = true,
         accentColor: Color = SourceBlue,
+        fontFamily: FontFamily = FontFamily.Default,
         content: @Composable () -> Unit,
 ) {
-  val colorScheme = if (darkTheme) darkScheme(accentColor) else lightScheme(accentColor)
-  val sourceColors = LocalSourceColors.current.copy(accent = accentColor)
+        val colorScheme = if (darkTheme) darkScheme(accentColor) else lightScheme(accentColor)
+        val sourceColors = LocalSourceColors.current.copy(accent = accentColor)
 
-  CompositionLocalProvider(LocalSourceColors provides sourceColors) {
-    MaterialTheme(
-            colorScheme = colorScheme,
-            typography = SourceTypography,
-            shapes = SourceShapes,
-            content = content,
-    )
-  }
+        CompositionLocalProvider(LocalSourceColors provides sourceColors) {
+                MaterialTheme(
+                        colorScheme = colorScheme,
+                        typography = buildTypography(fontFamily),
+                        shapes = SourceShapes,
+                        content = content,
+                )
+        }
 }
 
 // Convenience accessor — avoid passing down SourceColors via parameters
 val MaterialTheme.sourceColors: SourceColors
-  @Composable get() = LocalSourceColors.current
+        @Composable get() = LocalSourceColors.current

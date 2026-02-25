@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -5,6 +7,12 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
+}
+
+// Load secrets from local.properties (git-ignored)
+val localProps = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) load(f.inputStream())
 }
 
 android {
@@ -19,6 +27,14 @@ android {
         versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Last.fm API credentials — sourced from local.properties, never from source code
+        buildConfigField("String", "LASTFM_API_KEY",
+            "\"${localProps["lastfm.api_key"] ?: ""}\""
+        )
+        buildConfigField("String", "LASTFM_API_SECRET",
+            "\"${localProps["lastfm.api_secret"] ?: ""}\""
+        )
     }
 
     buildTypes {
