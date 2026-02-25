@@ -30,6 +30,7 @@ class AppPreferences @Inject constructor(@ApplicationContext private val ctx: Co
     val QUEUE_JSON = stringPreferencesKey("queue_json")
     val QUEUE_INDEX = intPreferencesKey("queue_index")
     val QUEUE_POSITION = longPreferencesKey("queue_position_ms")
+    val FONT_FAMILY = stringPreferencesKey("font_family")
   }
 
   val isDarkMode: Flow<Boolean> = ctx.dataStore.data.map { it[Keys.DARK_MODE] ?: true }
@@ -48,6 +49,8 @@ class AppPreferences @Inject constructor(@ApplicationContext private val ctx: Co
   val savedQueueJson: Flow<String?> = ctx.dataStore.data.map { it[Keys.QUEUE_JSON] }
   val savedQueueIndex: Flow<Int> = ctx.dataStore.data.map { it[Keys.QUEUE_INDEX] ?: 0 }
   val savedQueuePosition: Flow<Long> = ctx.dataStore.data.map { it[Keys.QUEUE_POSITION] ?: 0L }
+  val fontFamily: Flow<String> =
+          ctx.dataStore.data.map { it[Keys.FONT_FAMILY] ?: "PlusJakartaSans" }
 
   suspend fun setDarkMode(v: Boolean) = ctx.dataStore.edit { it[Keys.DARK_MODE] = v }
   suspend fun setAccentColor(v: Int) = ctx.dataStore.edit { it[Keys.ACCENT_COLOR] = v }
@@ -65,6 +68,7 @@ class AppPreferences @Inject constructor(@ApplicationContext private val ctx: Co
           ctx.dataStore.edit { it[Keys.SEARCH_BAR_BOTTOM] = v }
   suspend fun setRememberLastTab(v: Boolean) = ctx.dataStore.edit { it[Keys.REMEMBER_LAST_TAB] = v }
   suspend fun setLastLibraryTab(v: Int) = ctx.dataStore.edit { it[Keys.LAST_LIBRARY_TAB] = v }
+  suspend fun setFontFamily(v: String) = ctx.dataStore.edit { it[Keys.FONT_FAMILY] = v }
   suspend fun saveQueueState(json: String, index: Int, positionMs: Long) =
           ctx.dataStore.edit {
             it[Keys.QUEUE_JSON] = json

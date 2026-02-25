@@ -41,6 +41,11 @@ constructor(
                         .map { it?.mediaId?.toLongOrNull() }
                         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+        val playbackError =
+                controller.playbackError.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+        fun clearError() = controller.clearError()
+
         fun play() = controller.play()
         fun pause() = controller.pause()
         fun seekTo(posMs: Long) = controller.seekTo(posMs)

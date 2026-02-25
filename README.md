@@ -1,8 +1,8 @@
-# Phonograph 🎵
+# Source 🎵
 
 **Version:** 1.0.0
 
-Phonograph is a modern, native Android music player application. It is designed with a focus on beautiful aesthetics, smooth performance, and comprehensive local audio file management. 
+Source is a modern, native Android music player application. It is designed with a focus on beautiful aesthetics, smooth performance, and comprehensive local audio file management. 
 
 ## ✨ Main Features
 - **Local Audio Library Management:** Automatically scans and organizes your local music by Songs, Albums, Artists, and Genres.
@@ -48,4 +48,4 @@ This project was developed leveraging cutting-edge tools to accelerate design an
    - Upon first launch, the app will request permission to access your audio files. Please grant it so the app can scan your local library.
 
 ---
-*Created as part of the Phonograph modernization effort.*
+*Created as part of the Source modernization effort.*

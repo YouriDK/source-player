@@ -5,6 +5,8 @@ import android.database.Cursor
 import android.provider.MediaStore
 import com.source.player.data.db.dao.*
 import com.source.player.data.db.entity.*
+import com.source.player.data.lastfm.LastFmRepository
+import com.source.player.data.preferences.AppPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -13,6 +15,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
@@ -32,6 +35,8 @@ constructor(
         private val artistDao: ArtistDao,
         private val genreDao: GenreDao,
         private val blacklistDao: BlacklistDao,
+        private val lastFm: LastFmRepository,
+        private val prefs: AppPreferences,
 ) {
         private val _progress = MutableStateFlow(ScanProgress())
         val progress: StateFlow<ScanProgress> = _progress.asStateFlow()
@@ -237,6 +242,9 @@ constructor(
                                 albumDao.upsertAll(albums.values.toList())
                                 artistDao.upsertAll(artists.values.toList())
 
+                                // Online art enrichment — runs after local scan completes
+                                enrichAlbumArtFromLastFm(songs, albums)
+
                                 // Remove orphaned entries no longer in MediaStore
                                 val activeIds = songs.map { it.id }
                                 if (activeIds.isNotEmpty()) {
@@ -264,4 +272,52 @@ constructor(
                                 android.util.Log.e("MediaScanner", "Scan failed", e)
                         }
                 }
+
+        /**
+         * Post-scan: for each album with no local embedded art, fetch from Last.fm. Respects the
+         * artDownloadPolicy pref (NEVER skips everything). Makes exactly one API call per album —
+         * not per song. Updates both songs and albums tables with the fetched URL.
+         */
+        private suspend fun enrichAlbumArtFromLastFm(
+                songs: List<SongEntity>,
+                albums: Map<Long, AlbumEntity>,
+        ) {
+                val policy = prefs.artDownloadPolicy.firstOrNull() ?: "NEVER"
+                if (policy == "NEVER") return
+
+                // Determine albums that have no valid local art by probing ContentResolver
+                val resolver = context.contentResolver
+                val albumsNeedingArt =
+                        albums.values.filter { album ->
+                                val localUri =
+                                        android.net.Uri.parse(
+                                                "content://media/external/audio/albumart/${album.id}"
+                                        )
+                                try {
+                                        resolver.openInputStream(localUri)?.use { true } == null
+                                } catch (_: Exception) {
+                                        true // no local art
+                                }
+                        }
+
+                for (album in albumsNeedingArt) {
+                        val artist = album.artist.takeIf { it != "<Unknown>" } ?: continue
+                        val title = album.title.takeIf { it != "<Unknown>" } ?: continue
+
+                        val url = lastFm.fetchAlbumArt(artist, title) ?: continue
+
+                        // Update all songs that belong to this album
+                        songs.filter { it.albumId == album.id }.forEach { song ->
+                                songDao.updateArtUri(song.id, url)
+                        }
+
+                        // Update the album row itself
+                        albumDao.upsertAll(listOf(album.copy(artUri = url)))
+
+                        android.util.Log.d(
+                                "MediaScanner",
+                                "Fetched Last.fm art for \"$title\" by $artist"
+                        )
+                }
+        }
 }

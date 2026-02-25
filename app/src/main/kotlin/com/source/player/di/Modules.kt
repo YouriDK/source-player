@@ -4,6 +4,9 @@ import android.content.Context
 import androidx.room.Room
 import com.source.player.data.db.AppDatabase
 import com.source.player.data.db.dao.*
+import com.source.player.data.lastfm.LastFmApi
+import com.source.player.data.lastfm.LastFmRepository
+import com.source.player.data.preferences.AppPreferences
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -58,4 +61,11 @@ object NetworkModule {
               socketTimeout = 30_000
             }
           }
+
+  @Provides @Singleton fun provideLastFmApi(client: HttpClient): LastFmApi = LastFmApi(client)
+
+  @Provides
+  @Singleton
+  fun provideLastFmRepository(api: LastFmApi, prefs: AppPreferences): LastFmRepository =
+          LastFmRepository(api, prefs)
 }

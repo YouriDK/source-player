@@ -1,9 +1,12 @@
 package com.source.player.ui.screens
 
 import android.net.Uri
+import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.*
 import androidx.compose.foundation.shape.CircleShape
@@ -16,9 +19,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.*
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -41,6 +49,16 @@ fun PlayerScreen(
         val queueIndex by vm.queueIndex.collectAsState()
         val queueItems by vm.queueItems.collectAsState()
         val songId by vm.currentSongId.collectAsState()
+        val playbackError by vm.playbackError.collectAsState()
+        val context = LocalContext.current
+
+        // Show error toast for unplayable songs
+        LaunchedEffect(playbackError) {
+                playbackError?.let {
+                        Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+                        vm.clearError()
+                }
+        }
 
         val pagerState =
                 rememberPagerState(
@@ -208,25 +226,119 @@ fun PlayerScreen(
 
                         Spacer(Modifier.height(24.dp))
 
-                        // Progress bar + time
+                        // Progress bar + time (Custom rounded bar matching Stitch design)
                         val progress = if (durationMs > 0) positionMs.toFloat() / durationMs else 0f
-                        Slider(
-                                value = progress,
-                                onValueChange = { vm.seekTo((it * durationMs).toLong()) },
-                                colors =
-                                        SliderDefaults.colors(
-                                                thumbColor = MaterialTheme.colorScheme.primary,
-                                                activeTrackColor =
-                                                        MaterialTheme.colorScheme.primary,
-                                        ),
-                                modifier = Modifier.fillMaxWidth(),
-                        )
+                        var isDragging by remember { mutableStateOf(false) }
+                        var dragProgress by remember { mutableFloatStateOf(0f) }
+                        val displayProgress = if (isDragging) dragProgress else progress
+                        val accentColor = MaterialTheme.colorScheme.primary
+                        val trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
+                        val trackHeight = 6.dp
+                        val thumbRadius = 8.dp
+
+                        Box(
+                                modifier =
+                                        Modifier.fillMaxWidth()
+                                                .height(32.dp)
+                                                .pointerInput(durationMs) {
+                                                        detectTapGestures { offset ->
+                                                                val fraction =
+                                                                        (offset.x / size.width)
+                                                                                .coerceIn(0f, 1f)
+                                                                vm.seekTo(
+                                                                        (fraction * durationMs)
+                                                                                .toLong()
+                                                                )
+                                                        }
+                                                }
+                                                .pointerInput(durationMs) {
+                                                        detectHorizontalDragGestures(
+                                                                onDragStart = { offset ->
+                                                                        isDragging = true
+                                                                        dragProgress =
+                                                                                (offset.x /
+                                                                                                size.width)
+                                                                                        .coerceIn(
+                                                                                                0f,
+                                                                                                1f
+                                                                                        )
+                                                                },
+                                                                onDragEnd = {
+                                                                        vm.seekTo(
+                                                                                (dragProgress *
+                                                                                                durationMs)
+                                                                                        .toLong()
+                                                                        )
+                                                                        isDragging = false
+                                                                },
+                                                                onDragCancel = {
+                                                                        isDragging = false
+                                                                },
+                                                                onHorizontalDrag = { _, dragAmount
+                                                                        ->
+                                                                        dragProgress =
+                                                                                (dragProgress +
+                                                                                                dragAmount /
+                                                                                                        size.width)
+                                                                                        .coerceIn(
+                                                                                                0f,
+                                                                                                1f
+                                                                                        )
+                                                                }
+                                                        )
+                                                },
+                                contentAlignment = Alignment.Center,
+                        ) {
+                                Canvas(modifier = Modifier.fillMaxWidth().height(trackHeight)) {
+                                        val trackHeightPx = size.height
+                                        val cornerRadiusPx = trackHeightPx / 2
+
+                                        // Background track
+                                        drawRoundRect(
+                                                color = trackColor,
+                                                size = size,
+                                                cornerRadius =
+                                                        CornerRadius(cornerRadiusPx, cornerRadiusPx)
+                                        )
+
+                                        // Active (filled) track
+                                        val filledWidth = size.width * displayProgress
+                                        if (filledWidth > 0) {
+                                                drawRoundRect(
+                                                        color = accentColor,
+                                                        size = Size(filledWidth, trackHeightPx),
+                                                        cornerRadius =
+                                                                CornerRadius(
+                                                                        cornerRadiusPx,
+                                                                        cornerRadiusPx
+                                                                )
+                                                )
+                                        }
+
+                                        // Thumb circle drawn on top of track
+                                        val thumbRadiusPx = thumbRadius.toPx()
+                                        val thumbCenterX =
+                                                (size.width * displayProgress).coerceIn(
+                                                        thumbRadiusPx,
+                                                        size.width - thumbRadiusPx
+                                                )
+                                        drawCircle(
+                                                color = accentColor,
+                                                radius = thumbRadiusPx,
+                                                center = Offset(thumbCenterX, size.height / 2),
+                                        )
+                                }
+                        }
+
                         Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                         ) {
+                                val displayPosition =
+                                        if (isDragging) (dragProgress * durationMs).toLong()
+                                        else positionMs
                                 Text(
-                                        formatDuration(positionMs),
+                                        formatDuration(displayPosition),
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

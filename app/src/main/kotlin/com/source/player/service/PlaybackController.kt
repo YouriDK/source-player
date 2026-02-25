@@ -3,9 +3,11 @@ package com.source.player.service
 import android.content.ComponentName
 import android.content.Context
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.source.player.data.lastfm.LastFmRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -29,6 +31,7 @@ class PlaybackController
 @Inject
 constructor(
         @ApplicationContext private val context: Context,
+        private val lastFm: LastFmRepository,
 ) {
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -40,6 +43,7 @@ constructor(
   private val _durationMs = MutableStateFlow(0L)
   private val _queueItems = MutableStateFlow<List<MediaItem>>(emptyList())
   private val _queueIndex = MutableStateFlow(0)
+  private val _playbackError = MutableStateFlow<String?>(null)
 
   val currentSong = _currentSong.asStateFlow()
   val isPlaying = _isPlaying.asStateFlow()
@@ -49,9 +53,15 @@ constructor(
   val durationMs = _durationMs.asStateFlow()
   val queueItems = _queueItems.asStateFlow()
   val queueIndex = _queueIndex.asStateFlow()
+  val playbackError = _playbackError.asStateFlow()
+
+  fun clearError() {
+    _playbackError.value = null
+  }
 
   private var controller: MediaController? = null
   private var positionTickerJob: Job? = null
+  private var scrobbleJob: Job? = null // cancelled on track change or pause
 
   init {
     connect()
@@ -172,11 +182,19 @@ constructor(
           object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
               _isPlaying.value = isPlaying
-              if (isPlaying) startPositionTicker() else stopPositionTicker()
+              if (isPlaying) startPositionTicker()
+              else {
+                stopPositionTicker()
+                scrobbleJob?.cancel() // don't scrobble if paused/stopped
+              }
             }
             override fun onMediaItemTransition(item: MediaItem?, reason: Int) {
               _currentSong.value = item
               _queueIndex.value = controller?.currentMediaItemIndex ?: 0
+              // Cancel any pending scrobble for the previous track
+              scrobbleJob?.cancel()
+              // Fire Now Playing + start scrobble timer for the new track
+              item?.let { startScrobbleSession(it) }
             }
             override fun onRepeatModeChanged(repeatMode: Int) {
               _repeatMode.value = repeatMode
@@ -194,6 +212,28 @@ constructor(
             }
             override fun onEvents(player: Player, events: Player.Events) {
               _positionMs.value = player.currentPosition
+            }
+            override fun onPlayerError(error: PlaybackException) {
+              val songTitle = controller?.currentMediaItem?.mediaMetadata?.title ?: "Unknown"
+              val reason =
+                      when (error.errorCode) {
+                        PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND -> "File not found"
+                        PlaybackException.ERROR_CODE_IO_NO_PERMISSION ->
+                                "No permission to read file"
+                        PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED ->
+                                "Unsupported format"
+                        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED -> "Network error"
+                        else -> "Playback error"
+                      }
+              _playbackError.value = "Can't play \"$songTitle\": $reason"
+              // Try to skip to the next song
+              controller?.let { c ->
+                if (c.hasNextMediaItem()) {
+                  c.seekToNextMediaItem()
+                  c.prepare()
+                  c.play()
+                }
+              }
             }
           }
 
@@ -232,5 +272,37 @@ constructor(
   private fun stopPositionTicker() {
     positionTickerJob?.cancel()
     positionTickerJob = null
+  }
+
+  /**
+   * Fires "now playing" immediately, then schedules a scrobble. Per Last.fm spec: scrobble after
+   * max(30s, 50% of track duration).
+   */
+  private fun startScrobbleSession(item: MediaItem) {
+    val meta = item.mediaMetadata
+    val artist = meta.artist?.toString() ?: return // artist is required
+    val track = meta.title?.toString() ?: return // title is required
+    val album = meta.albumTitle?.toString()
+    val durationMs = controller?.duration?.takeIf { it > 0 }
+    val durationSec = durationMs?.let { (it / 1000).toInt() } ?: 0
+    val startTimestamp = System.currentTimeMillis() / 1000L // Unix epoch seconds
+
+    scrobbleJob =
+            scope.launch(Dispatchers.IO) {
+              // 1. Notify "now playing" immediately
+              lastFm.nowPlaying(artist, track, album, durationSec)
+
+              // 2. Wait until the scrobble threshold is reached
+              val threshold =
+                      if (durationMs != null && durationMs > 0) {
+                        maxOf(30_000L, durationMs / 2)
+                      } else {
+                        30_000L // Unknown duration — use minimum
+                      }
+              delay(threshold)
+
+              // 3. Submit scrobble
+              lastFm.scrobble(artist, track, album, startTimestamp, durationSec)
+            }
   }
 }
