@@ -69,7 +69,9 @@ constructor(
                                 val songs = mutableListOf<SongEntity>()
                                 val albums = mutableMapOf<Long, AlbumEntity>()
                                 val artists = mutableMapOf<Long, ArtistEntity>()
-                                val genres = mutableMapOf<Long, GenreEntity>()
+                                // genreName keyed by songId — populated from
+                                // MediaStore.Audio.Genres
+                                val songGenreMap = mutableMapOf<Long, String>()
 
                                 val projection =
                                         arrayOf(
@@ -185,7 +187,7 @@ constructor(
                                                                 path = path,
                                                                 trackNumber = track,
                                                                 year = year,
-                                                                genre = "",
+                                                                genre = songGenreMap[id] ?: "",
                                                                 dateAdded = dateAdded,
                                                                 albumArtUri = artUri,
                                                                 folderPath = folder,
@@ -242,6 +244,10 @@ constructor(
                                 albumDao.upsertAll(albums.values.toList())
                                 artistDao.upsertAll(artists.values.toList())
 
+                                // Build genres from MediaStore.Audio.Genres
+                                val genreEntities = buildGenreMap(songs)
+                                genreDao.upsertAll(genreEntities.values.toList())
+
                                 // Online art enrichment — runs after local scan completes
                                 enrichAlbumArtFromLastFm(songs, albums)
 
@@ -251,6 +257,9 @@ constructor(
                                         songDao.deleteOrphans(activeIds)
                                         albumDao.deleteOrphans(albums.keys.toList())
                                         artistDao.deleteOrphans(artists.keys.toList())
+                                        if (genreEntities.isNotEmpty()) {
+                                                genreDao.deleteOrphans(genreEntities.keys.toList())
+                                        }
                                 }
 
                                 _progress.value =
@@ -272,6 +281,79 @@ constructor(
                                 android.util.Log.e("MediaScanner", "Scan failed", e)
                         }
                 }
+
+        /**
+         * Queries MediaStore.Audio.Genres and maps genre id → GenreEntity with correct song counts.
+         * Returns a map keyed by genre id for easy orphan deletion.
+         */
+        private fun buildGenreMap(songs: List<SongEntity>): Map<Long, GenreEntity> {
+                val genreEntities = mutableMapOf<Long, GenreEntity>()
+
+                // Step 1: get all genres
+                val genreCursor =
+                        context.contentResolver.query(
+                                MediaStore.Audio.Genres.EXTERNAL_CONTENT_URI,
+                                arrayOf(MediaStore.Audio.Genres._ID, MediaStore.Audio.Genres.NAME),
+                                null,
+                                null,
+                                "${MediaStore.Audio.Genres.NAME} ASC",
+                        )
+                                ?: return emptyMap()
+
+                // Build id→name map
+                val genreNames = mutableMapOf<Long, String>()
+                genreCursor.use { c ->
+                        val idCol = c.getColumnIndexOrThrow(MediaStore.Audio.Genres._ID)
+                        val nameCol = c.getColumnIndexOrThrow(MediaStore.Audio.Genres.NAME)
+                        while (c.moveToNext()) {
+                                val gid = c.getLong(idCol)
+                                val name =
+                                        c.getString(nameCol)?.takeIf { it.isNotBlank() } ?: continue
+                                genreNames[gid] = name
+                        }
+                }
+
+                // Step 2: for each genre, query which songs belong to it and count them
+                val songIdSet = songs.map { it.id }.toSet()
+                for ((gid, name) in genreNames) {
+                        val memberUri =
+                                MediaStore.Audio.Genres.Members.getContentUri("external", gid)
+                        val memberCursor =
+                                context.contentResolver.query(
+                                        memberUri,
+                                        arrayOf(MediaStore.Audio.Genres.Members.AUDIO_ID),
+                                        null,
+                                        null,
+                                        null,
+                                )
+                                        ?: continue
+
+                        var count = 0
+                        memberCursor.use { mc ->
+                                val audioIdCol =
+                                        mc.getColumnIndexOrThrow(
+                                                MediaStore.Audio.Genres.Members.AUDIO_ID
+                                        )
+                                while (mc.moveToNext()) {
+                                        val sid = mc.getLong(audioIdCol)
+                                        if (sid in songIdSet) count++
+                                }
+                        }
+
+                        // Only include genres that have at least one song in our library
+                        if (count > 0) {
+                                genreEntities[gid] =
+                                        GenreEntity(
+                                                id = gid,
+                                                name = name,
+                                                songCount = count,
+                                        )
+                        }
+                }
+
+                android.util.Log.d("MediaScanner", "Built ${genreEntities.size} genres")
+                return genreEntities
+        }
 
         /**
          * Post-scan: for each album with no local embedded art, fetch from Last.fm. Respects the

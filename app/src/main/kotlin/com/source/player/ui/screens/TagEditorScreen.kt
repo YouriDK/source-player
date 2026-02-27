@@ -275,10 +275,10 @@ private fun TagFieldWithFolderToggle(
                   color = MaterialTheme.colorScheme.onSurfaceVariant,
                   letterSpacing = 0.8.sp,
           )
-          Switch(
+          Checkbox(
                   checked = applyToFolder,
                   onCheckedChange = onToggleChange,
-                  modifier = Modifier.height(20.dp).padding(0.dp),
+                  modifier = Modifier.size(20.dp),
           )
         }
       }

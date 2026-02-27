@@ -40,12 +40,13 @@ class LastFmApi @Inject constructor(private val client: HttpClient) {
          * Returns the session key string, or throws if login fails.
          */
         suspend fun getMobileSession(username: String, password: String): String {
-                val authToken = md5(username.lowercase() + md5(password))
+                // Last.fm mobile auth (https://www.last.fm/api/mobileauth):
+                // Send `password` as plaintext — it is included in api_sig signing.
                 val params =
                         mutableMapOf(
                                 "method" to "auth.getMobileSession",
                                 "username" to username,
-                                "authToken" to authToken,
+                                "password" to password,
                                 "api_key" to API_KEY,
                                 "format" to "json",
                         )
@@ -60,7 +61,18 @@ class LastFmApi @Inject constructor(private val client: HttpClient) {
                                         },
                         )
                 val body = response.body<LastFmSessionResponse>()
-                return body.session?.key ?: throw LastFmException(body.error, body.message)
+                if (body.session?.key != null) return body.session.key
+                // Provide a user-friendly message that includes the actual error code for debugging
+                val errorMsg =
+                        when (body.error) {
+                                4 -> "Wrong username or password (error 4)."
+                                10 ->
+                                        "Invalid API key (error 10). Check your Last.fm API credentials."
+                                26 -> "API key suspended (error 26). Check your Last.fm app status."
+                                else ->
+                                        "Last.fm error ${body.error}: ${body.message ?: "Unknown error"}"
+                        }
+                throw LastFmException(body.error, errorMsg)
         }
 
         // ---- Now Playing ----

@@ -16,7 +16,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
-import com.source.player.ui.theme.AppFont
 import com.source.player.ui.viewmodel.LastFmLoginState
 import com.source.player.ui.viewmodel.SettingsViewModel
 
@@ -44,18 +43,13 @@ fun SettingsScreen(
   val restore by vm.restoreState.collectAsState()
   val scrobble by vm.scrobbling.collectAsState()
   val artPolicy by vm.artDownloadPolicy.collectAsState()
-  val searchBottom by vm.searchBarAtBottom.collectAsState()
   val rememberTab by vm.rememberLastTab.collectAsState()
   val accentColor by vm.accentColor.collectAsState()
-  val fontFamilyName by vm.fontFamily.collectAsState()
   val lastFmUser by vm.lastFmUser.collectAsState()
   val loginState by vm.loginState.collectAsState()
-  val currentAppFont =
-          AppFont.entries.firstOrNull { it.name == fontFamilyName } ?: AppFont.PlusJakartaSans
 
   var showLastFmModal by remember { mutableStateOf(false) }
   var showColorPicker by remember { mutableStateOf(false) }
-  var showFontPicker by remember { mutableStateOf(false) }
 
   Column(
           Modifier.fillMaxSize().systemBarsPadding().verticalScroll(rememberScrollState()),
@@ -75,11 +69,6 @@ fun SettingsScreen(
               Icons.Rounded.Palette,
               subtitle = "#${accentColor.toString(16).uppercase()}"
       ) { showColorPicker = true }
-      SettingsItem(
-              "Font Style",
-              Icons.Rounded.TextFields,
-              subtitle = currentAppFont.label,
-      ) { showFontPicker = true }
     }
 
     SettingsSection("Playback") {
@@ -109,9 +98,6 @@ fun SettingsScreen(
     }
 
     SettingsSection("Library & UX") {
-      SettingsSwitch("Search Bar at Bottom", Icons.Rounded.KeyboardArrowDown, searchBottom) {
-        vm.setSearchBarAtBottom(it)
-      }
       SettingsSwitch("Remember Last Tab", Icons.Rounded.Bookmark, rememberTab) {
         vm.setRememberLastTab(it)
       }
@@ -143,17 +129,6 @@ fun SettingsScreen(
               showLastFmModal = false
               vm.resetLoginState()
             },
-    )
-  }
-
-  if (showFontPicker) {
-    FontPickerSheet(
-            currentFont = currentAppFont,
-            onFontSelected = {
-              vm.setFontFamily(it.name)
-              showFontPicker = false
-            },
-            onDismiss = { showFontPicker = false },
     )
   }
 }
@@ -312,7 +287,8 @@ fun LastFmLoginModal(
                 OutlinedTextField(
                         value = user,
                         onValueChange = { user = it },
-                        label = { Text("Username") },
+                        label = { Text("Last.fm Username (not email)") },
+                        supportingText = { Text("Use your display name, not your email") },
                         singleLine = true,
                         enabled = !isLoading,
                         modifier = Modifier.fillMaxWidth()
@@ -364,69 +340,3 @@ private fun BorderStroke(
         width: androidx.compose.ui.unit.Dp,
         color: Color
 ): androidx.compose.foundation.BorderStroke = androidx.compose.foundation.BorderStroke(width, color)
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun FontPickerSheet(
-        currentFont: AppFont,
-        onFontSelected: (AppFont) -> Unit,
-        onDismiss: () -> Unit,
-) {
-  ModalBottomSheet(onDismissRequest = onDismiss) {
-    Column(
-            modifier = Modifier.fillMaxWidth().padding(bottom = 32.dp),
-    ) {
-      Text(
-              "Font Style",
-              style = MaterialTheme.typography.titleLarge,
-              modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-      )
-      Text(
-              "Choose your preferred typeface",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-              modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 8.dp),
-      )
-      HorizontalDivider()
-      AppFont.entries.forEach { font ->
-        val isSelected = font == currentFont
-        ListItem(
-                headlineContent = {
-                  Text(
-                          font.label,
-                          style = MaterialTheme.typography.bodyLarge,
-                  )
-                },
-                leadingContent = {
-                  Text(
-                          "Aa",
-                          style = MaterialTheme.typography.titleMedium,
-                          color =
-                                  if (isSelected) MaterialTheme.colorScheme.primary
-                                  else MaterialTheme.colorScheme.onSurfaceVariant,
-                  )
-                },
-                trailingContent = {
-                  if (isSelected) {
-                    Icon(
-                            Icons.Rounded.Check,
-                            null,
-                            tint = MaterialTheme.colorScheme.primary,
-                    )
-                  }
-                },
-                modifier = Modifier.clickable { onFontSelected(font) },
-                colors =
-                        ListItemDefaults.colors(
-                                containerColor =
-                                        if (isSelected)
-                                                MaterialTheme.colorScheme.primaryContainer.copy(
-                                                        alpha = 0.3f
-                                                )
-                                        else MaterialTheme.colorScheme.surface,
-                        ),
-        )
-      }
-    }
-  }
-}

@@ -112,18 +112,36 @@ fun LibraryScreen(
                                                 ) {
                                                         Button(
                                                                 onClick = { vm.playAllSongs() },
-                                                                shape = MaterialTheme.shapes.large,
+                                                                modifier = Modifier.weight(1f),
+                                                                shape =
+                                                                        MaterialTheme.shapes
+                                                                                .extraLarge,
                                                         ) {
                                                                 Icon(Icons.Rounded.PlayArrow, null)
-                                                                Spacer(Modifier.width(4.dp))
+                                                                Spacer(Modifier.width(6.dp))
                                                                 Text("Play All")
                                                         }
-                                                        OutlinedButton(
+                                                        FilledTonalButton(
                                                                 onClick = { vm.shuffleAllSongs() },
-                                                                shape = MaterialTheme.shapes.large,
+                                                                modifier = Modifier.weight(1f),
+                                                                shape =
+                                                                        MaterialTheme.shapes
+                                                                                .extraLarge,
+                                                                colors =
+                                                                        ButtonDefaults
+                                                                                .filledTonalButtonColors(
+                                                                                        containerColor =
+                                                                                                MaterialTheme
+                                                                                                        .colorScheme
+                                                                                                        .surfaceVariant,
+                                                                                        contentColor =
+                                                                                                MaterialTheme
+                                                                                                        .colorScheme
+                                                                                                        .onSurface,
+                                                                                ),
                                                         ) {
                                                                 Icon(Icons.Rounded.Shuffle, null)
-                                                                Spacer(Modifier.width(4.dp))
+                                                                Spacer(Modifier.width(6.dp))
                                                                 Text("Shuffle")
                                                         }
                                                 }
