@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -21,7 +20,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -40,13 +38,12 @@ fun HomeScreen(
         vm: HomeViewModel = hiltViewModel(),
 ) {
         val context = LocalContext.current
+        val currentSong by vm.currentSong.collectAsState()
         val songCount by vm.songCount.collectAsState()
         val scanProgress by vm.scanProgress.collectAsState()
-
+        val quickPicks by vm.quickPicks.collectAsState()
         val playlists by vm.playlists.collectAsState()
         val recentlyAdded by vm.recentlyAdded.collectAsState()
-        val quickPicks by vm.quickPicks.collectAsState()
-        val continueListening by vm.continueListening.collectAsState()
 
         // ---- Permission management ----
         val permission =
@@ -86,67 +83,141 @@ fun HomeScreen(
         ) {
                 // Greeting header
                 item {
-                        Row(
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                        ) {
-                                Column {
+                        Column(Modifier.padding(horizontal = 24.dp)) {
+                                Text(
+                                        greeting,
+                                        style = MaterialTheme.typography.displayMedium,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                        "Welcome to Source",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(Modifier.height(24.dp))
+                        }
+                }
+
+                // Continue Listening card
+                currentSong?.let { song ->
+                        item {
+                                Column(Modifier.padding(horizontal = 24.dp)) {
                                         Text(
-                                                greeting,
-                                                style =
-                                                        MaterialTheme.typography.headlineMedium
-                                                                .copy(fontWeight = FontWeight.Bold),
+                                                "Continue Listening",
+                                                style = MaterialTheme.typography.titleLarge,
                                                 color = MaterialTheme.colorScheme.onSurface
                                         )
-                                        Text(
-                                                "Here's what's been playing",
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        Spacer(Modifier.height(12.dp))
+                                        ContinueListeningCard(
+                                                song = song,
+                                                onTap = { navController.navigate(Routes.PLAYER) }
                                         )
+                                        Spacer(Modifier.height(24.dp))
                                 }
-                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                        IconButton(
-                                                onClick = { /* TODO: Notifications */},
-                                                modifier =
-                                                        Modifier.background(
-                                                                        MaterialTheme.colorScheme
-                                                                                .surfaceVariant,
-                                                                        CircleShape
-                                                                )
-                                                                .size(40.dp)
-                                        ) {
-                                                Icon(
-                                                        Icons.Rounded.Notifications,
-                                                        contentDescription = "Notifications",
-                                                        tint =
-                                                                MaterialTheme.colorScheme
-                                                                        .onSurfaceVariant
+                        }
+                }
+
+                // Dynamic sections
+                if (songCount > 0) {
+                        // Quick Picks
+                        if (quickPicks.isNotEmpty()) {
+                                item {
+                                        Column(Modifier.padding(horizontal = 24.dp)) {
+                                                Text(
+                                                        "Quick Picks",
+                                                        style = MaterialTheme.typography.titleLarge,
+                                                        color = MaterialTheme.colorScheme.onSurface
                                                 )
-                                        }
-                                        IconButton(
-                                                onClick = { /* TODO: Profile */},
-                                                modifier =
-                                                        Modifier.background(
-                                                                        MaterialTheme.colorScheme
-                                                                                .primary,
-                                                                        CircleShape
-                                                                )
-                                                                .size(40.dp)
-                                        ) {
-                                                Icon(
-                                                        Icons.Rounded.Person,
-                                                        contentDescription = "Profile",
-                                                        tint = MaterialTheme.colorScheme.onPrimary
-                                                )
+                                                Spacer(Modifier.height(12.dp))
+                                                quickPicks.forEachIndexed { index, song ->
+                                                        QuickPickItem(
+                                                                song = song,
+                                                                onClick = {
+                                                                        vm.playSongs(
+                                                                                quickPicks,
+                                                                                index
+                                                                        )
+                                                                }
+                                                        )
+                                                        if (index < quickPicks.size - 1) {
+                                                                Spacer(Modifier.height(8.dp))
+                                                        }
+                                                }
+                                                Spacer(Modifier.height(24.dp))
                                         }
                                 }
                         }
-                        Spacer(Modifier.height(32.dp))
-                }
 
-                // Empty state / Scan CTA
-                if (songCount == 0) {
+                        // Your Playlists
+                        if (playlists.isNotEmpty()) {
+                                item {
+                                        Column {
+                                                Text(
+                                                        "Your Playlists",
+                                                        style = MaterialTheme.typography.titleLarge,
+                                                        color = MaterialTheme.colorScheme.onSurface,
+                                                        modifier =
+                                                                Modifier.padding(horizontal = 24.dp)
+                                                )
+                                                Spacer(Modifier.height(12.dp))
+                                                LazyRow(
+                                                        contentPadding =
+                                                                PaddingValues(horizontal = 24.dp),
+                                                        horizontalArrangement =
+                                                                Arrangement.spacedBy(16.dp)
+                                                ) {
+                                                        items(playlists) { playlist ->
+                                                                PlaylistItem(
+                                                                        playlist = playlist,
+                                                                        onClick = { /* TODO: Navigate to playlist */
+                                                                        }
+                                                                )
+                                                        }
+                                                }
+                                                Spacer(Modifier.height(24.dp))
+                                        }
+                                }
+                        }
+
+                        // Recently Added
+                        if (recentlyAdded.isNotEmpty()) {
+                                item {
+                                        Column {
+                                                Text(
+                                                        "Recently Added",
+                                                        style = MaterialTheme.typography.titleLarge,
+                                                        color = MaterialTheme.colorScheme.onSurface,
+                                                        modifier =
+                                                                Modifier.padding(horizontal = 24.dp)
+                                                )
+                                                Spacer(Modifier.height(12.dp))
+                                                LazyRow(
+                                                        contentPadding =
+                                                                PaddingValues(horizontal = 24.dp),
+                                                        horizontalArrangement =
+                                                                Arrangement.spacedBy(16.dp)
+                                                ) {
+                                                        items(recentlyAdded) { song ->
+                                                                RecentlyAddedItem(
+                                                                        song = song,
+                                                                        onClick = {
+                                                                                vm.playSongs(
+                                                                                        recentlyAdded,
+                                                                                        recentlyAdded
+                                                                                                .indexOf(
+                                                                                                        song
+                                                                                                )
+                                                                                )
+                                                                        }
+                                                                )
+                                                        }
+                                                }
+                                                Spacer(Modifier.height(24.dp))
+                                        }
+                                }
+                        }
+                } else {
+                        // Empty state / Scan CTA
                         item {
                                 Column(
                                         modifier = Modifier.fillMaxWidth().padding(24.dp),
@@ -174,6 +245,8 @@ fun HomeScreen(
                                         Spacer(Modifier.height(20.dp))
 
                                         if (!permissionGranted) {
+                                                // Permission required — show explanatory UI then
+                                                // request
                                                 OutlinedCard(
                                                         modifier = Modifier.fillMaxWidth(),
                                                         shape = MaterialTheme.shapes.large
@@ -239,6 +312,7 @@ fun HomeScreen(
                                                         }
                                                 }
                                         } else if (scanProgress != null) {
+                                                // Scanning in progress
                                                 Column(
                                                         horizontalAlignment =
                                                                 Alignment.CenterHorizontally
@@ -258,6 +332,7 @@ fun HomeScreen(
                                                         )
                                                 }
                                         } else {
+                                                // Permission granted — show scan button
                                                 Button(
                                                         onClick = { vm.scanLibrary() },
                                                         shape = MaterialTheme.shapes.large,
@@ -269,282 +344,142 @@ fun HomeScreen(
                                         }
                                 }
                         }
-                } else {
-                        // Continue Listening
-                        if (continueListening.isNotEmpty()) {
-                                item {
-                                        SectionHeader(title = "Continue Listening")
-                                        LazyRow(
-                                                contentPadding = PaddingValues(horizontal = 24.dp),
-                                                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                                modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                                items(continueListening) { song ->
-                                                        LargeSquareCard(
-                                                                title = song.title,
-                                                                subtitle = song.artist,
-                                                                artworkUri = song.albumArtUri,
-                                                                onClick = {
-                                                                        vm.playSong(song)
-                                                                        navController.navigate(
-                                                                                Routes.PLAYER
-                                                                        )
-                                                                }
-                                                        )
-                                                }
-                                        }
-                                        Spacer(Modifier.height(32.dp))
-                                }
-                        }
-
-                        // Quick Picks
-                        if (quickPicks.isNotEmpty()) {
-                                item {
-                                        SectionHeader(
-                                                title = "Quick Picks",
-                                                actionText = "Play all",
-                                                onActionClick = {
-                                                        vm.playSongs(quickPicks)
-                                                        navController.navigate(Routes.PLAYER)
-                                                }
-                                        )
-                                        Column(modifier = Modifier.padding(horizontal = 24.dp)) {
-                                                quickPicks.forEach { song ->
-                                                        QuickPickItem(
-                                                                song = song,
-                                                                onClick = {
-                                                                        vm.playSong(song)
-                                                                        navController.navigate(
-                                                                                Routes.PLAYER
-                                                                        )
-                                                                },
-                                                                onOptionsClick = { /* TODO: Implement options */
-                                                                }
-                                                        )
-                                                }
-                                        }
-                                        Spacer(Modifier.height(32.dp))
-                                }
-                        }
-
-                        // Your Playlists
-                        item {
-                                SectionHeader(
-                                        title = "Your Playlists",
-                                        actionText = "See all",
-                                        onActionClick = { /* TODO: Navigate to all playlists */}
-                                )
-                                LazyRow(
-                                        contentPadding = PaddingValues(horizontal = 24.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                        modifier = Modifier.fillMaxWidth()
-                                ) {
-                                        item {
-                                                NewPlaylistCard(
-                                                        onClick = {
-                                                                vm.createPlaylist("New Playlist")
-                                                        }
-                                                )
-                                        }
-                                        items(playlists) { playlist ->
-                                                PlaylistCard(
-                                                        playlist = playlist,
-                                                        onClick = {
-                                                                navController.navigate(
-                                                                        Routes.PLAYLIST_DETAIL
-                                                                                .replace(
-                                                                                        "{playlistId}",
-                                                                                        playlist.id
-                                                                                                .toString()
-                                                                                )
-                                                                )
-                                                        }
-                                                )
-                                        }
-                                }
-                                Spacer(Modifier.height(32.dp))
-                        }
-
-                        // Recently Added
-                        if (recentlyAdded.isNotEmpty()) {
-                                item {
-                                        SectionHeader(title = "Recently Added")
-                                        LazyRow(
-                                                contentPadding = PaddingValues(horizontal = 24.dp),
-                                                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                                modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                                items(recentlyAdded) { song ->
-                                                        LargeSquareCard(
-                                                                title = song.album,
-                                                                subtitle = song.artist,
-                                                                artworkUri = song.albumArtUri,
-                                                                onClick = {
-                                                                        vm.playSong(song)
-                                                                        navController.navigate(
-                                                                                Routes.PLAYER
-                                                                        )
-                                                                }
-                                                        )
-                                                }
-                                        }
-                                        Spacer(Modifier.height(32.dp))
-                                }
-                        }
                 }
         }
 }
 
 @Composable
-fun SectionHeader(title: String, actionText: String? = null, onActionClick: (() -> Unit)? = null) {
-        Row(
-                modifier =
-                        Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+private fun ContinueListeningCard(
+        song: androidx.media3.common.MediaItem,
+        onTap: () -> Unit,
+) {
+        Card(
+                onClick = onTap,
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.large,
+                colors =
+                        CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer
+                        ),
         ) {
-                Text(
-                        text = title,
-                        style =
-                                MaterialTheme.typography.titleLarge.copy(
-                                        fontWeight = FontWeight.Bold
-                                ),
-                        color = MaterialTheme.colorScheme.onSurface
-                )
-                if (actionText != null && onActionClick != null) {
-                        Text(
-                                text = actionText,
-                                style =
-                                        MaterialTheme.typography.labelLarge.copy(
-                                                fontWeight = FontWeight.SemiBold
-                                        ),
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.clickable { onActionClick() }.padding(4.dp)
+                Row(
+                        Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                        AsyncImage(
+                                model = song.mediaMetadata.artworkUri,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.size(64.dp).clip(MaterialTheme.shapes.medium),
+                        )
+                        Column(Modifier.weight(1f)) {
+                                Text(
+                                        song.mediaMetadata.title?.toString() ?: "",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                        song.mediaMetadata.artist?.toString() ?: "",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                        }
+                        Icon(
+                                Icons.Rounded.PlayCircle,
+                                "Play",
+                                modifier = Modifier.size(40.dp),
+                                tint = MaterialTheme.colorScheme.primary
                         )
                 }
         }
 }
 
 @Composable
-fun LargeSquareCard(title: String, subtitle: String, artworkUri: String?, onClick: () -> Unit) {
-        Column(modifier = Modifier.width(140.dp).clickable { onClick() }) {
-                AsyncImage(
-                        model = artworkUri,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier =
-                                Modifier.size(140.dp)
-                                        .clip(MaterialTheme.shapes.large)
-                                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                        title,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1
-                )
-                Text(
-                        subtitle,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1
-                )
-        }
-}
-
-@Composable
-fun QuickPickItem(song: SongEntity, onClick: () -> Unit, onOptionsClick: () -> Unit) {
+private fun QuickPickItem(song: SongEntity, onClick: () -> Unit) {
         Row(
-                Modifier.fillMaxWidth().clickable { onClick() }.padding(vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                modifier =
+                        Modifier.fillMaxWidth()
+                                .clickable(onClick = onClick)
+                                .padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
         ) {
                 AsyncImage(
                         model = song.albumArtUri,
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
-                        modifier =
-                                Modifier.size(48.dp)
-                                        .clip(MaterialTheme.shapes.medium)
-                                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                        modifier = Modifier.size(48.dp).clip(MaterialTheme.shapes.small)
                 )
+                Spacer(Modifier.width(16.dp))
                 Column(Modifier.weight(1f)) {
                         Text(
                                 song.title,
-                                style = MaterialTheme.typography.titleMedium,
+                                style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1
                         )
-                        val durationMins = song.duration / 1000 / 60
-                        val durationSecs = (song.duration / 1000) % 60
-                        val durationStr = String.format("%d:%02d", durationMins, durationSecs)
                         Text(
-                                "${song.artist} • $durationStr",
-                                style = MaterialTheme.typography.bodySmall,
+                                "${song.artist} • ${formatDuration(song.duration)}",
+                                style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1
                         )
                 }
-                IconButton(onClick = onOptionsClick) {
-                        Icon(
-                                Icons.Rounded.MoreVert,
-                                "More Options",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                }
-        }
-}
-
-@Composable
-fun PlaylistCard(playlist: PlaylistEntity, onClick: () -> Unit) {
-        Column(modifier = Modifier.width(140.dp).clickable { onClick() }) {
-                Box(
-                        modifier =
-                                Modifier.size(140.dp)
-                                        .clip(MaterialTheme.shapes.large)
-                                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                        contentAlignment = Alignment.Center
-                ) {
-                        Icon(
-                                Icons.Rounded.LibraryMusic,
-                                null,
-                                modifier = Modifier.size(48.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                        )
-                }
-                Spacer(Modifier.height(8.dp))
-                Text(
-                        playlist.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1
+                Icon(
+                        Icons.Rounded.MoreVert,
+                        contentDescription = "More",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
         }
 }
 
 @Composable
-fun NewPlaylistCard(onClick: () -> Unit) {
-        Column(modifier = Modifier.width(140.dp).clickable { onClick() }) {
-                Box(
-                        modifier =
-                                Modifier.size(140.dp)
-                                        .clip(MaterialTheme.shapes.large)
-                                        .background(MaterialTheme.colorScheme.primaryContainer),
-                        contentAlignment = Alignment.Center
-                ) {
-                        Icon(
-                                Icons.Rounded.Add,
-                                null,
-                                modifier = Modifier.size(48.dp),
-                                tint = MaterialTheme.colorScheme.primary
+private fun PlaylistItem(playlist: PlaylistEntity, onClick: () -> Unit) {
+        Card(
+                onClick = onClick,
+                modifier = Modifier.width(140.dp).height(140.dp),
+                shape = MaterialTheme.shapes.medium
+        ) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                        Box(
+                                modifier =
+                                        Modifier.fillMaxSize()
+                                                .background(
+                                                        MaterialTheme.colorScheme.secondaryContainer
+                                                )
                         )
+                        Column(modifier = Modifier.align(Alignment.BottomStart).padding(12.dp)) {
+                                Text(
+                                        playlist.name,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        maxLines = 2
+                                )
+                        }
                 }
+        }
+}
+
+@Composable
+private fun RecentlyAddedItem(song: SongEntity, onClick: () -> Unit) {
+        Column(modifier = Modifier.width(140.dp).clickable(onClick = onClick)) {
+                AsyncImage(
+                        model = song.albumArtUri,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.size(140.dp).clip(MaterialTheme.shapes.medium)
+                )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                        "New Playlist",
-                        style = MaterialTheme.typography.titleMedium,
+                        song.title,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1
+                )
+                Text(
+                        song.artist,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1
                 )
         }

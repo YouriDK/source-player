@@ -33,6 +33,11 @@ fun FoldersScreen(
         val songsInFolder by vm.songsInFolder.collectAsState()
         val totalSongs by vm.totalSongsCount.collectAsState()
         val currentPath by vm.currentPath.collectAsState()
+        val playlists by vm.playlists.collectAsState()
+
+        var showPlaylistSheet by remember { mutableStateOf(false) }
+        var showNewPlaylistDialog by remember { mutableStateOf(false) }
+        var newPlaylistName by remember { mutableStateOf("") }
 
         // Handle system back
         BackHandler(enabled = breadcrumbs.size > 1) { vm.popBack() }
@@ -179,32 +184,77 @@ fun FoldersScreen(
                                                                 vertical = 8.dp
                                                         )
                                         ) {
-                                                Text(
-                                                        "$totalSongs songs",
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        color =
-                                                                MaterialTheme.colorScheme
-                                                                        .onSurfaceVariant,
-                                                )
+                                                Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement =
+                                                                Arrangement.SpaceBetween,
+                                                        verticalAlignment =
+                                                                Alignment.CenterVertically
+                                                ) {
+                                                        Text(
+                                                                "$totalSongs songs",
+                                                                style =
+                                                                        MaterialTheme.typography
+                                                                                .bodySmall,
+                                                                color =
+                                                                        MaterialTheme.colorScheme
+                                                                                .onSurfaceVariant,
+                                                        )
+                                                        IconButton(
+                                                                onClick = {
+                                                                        showPlaylistSheet = true
+                                                                }
+                                                        ) {
+                                                                Icon(
+                                                                        Icons.Rounded.PlaylistAdd,
+                                                                        "Add Folder to Playlist",
+                                                                        tint =
+                                                                                MaterialTheme
+                                                                                        .colorScheme
+                                                                                        .onSurfaceVariant
+                                                                )
+                                                        }
+                                                }
                                                 Spacer(Modifier.height(8.dp))
                                                 Row(
+                                                        modifier =
+                                                                Modifier.fillMaxWidth()
+                                                                        .padding(top = 4.dp),
                                                         horizontalArrangement =
                                                                 Arrangement.spacedBy(8.dp)
                                                 ) {
                                                         Button(
                                                                 onClick = { vm.playAll() },
-                                                                shape = MaterialTheme.shapes.large,
+                                                                modifier = Modifier.weight(1f),
+                                                                shape =
+                                                                        MaterialTheme.shapes
+                                                                                .extraLarge,
                                                         ) {
                                                                 Icon(Icons.Rounded.PlayArrow, null)
-                                                                Spacer(Modifier.width(4.dp))
+                                                                Spacer(Modifier.width(6.dp))
                                                                 Text("Play All")
                                                         }
-                                                        OutlinedButton(
+                                                        FilledTonalButton(
                                                                 onClick = { vm.shuffleAll() },
-                                                                shape = MaterialTheme.shapes.large,
+                                                                modifier = Modifier.weight(1f),
+                                                                shape =
+                                                                        MaterialTheme.shapes
+                                                                                .extraLarge,
+                                                                colors =
+                                                                        ButtonDefaults
+                                                                                .filledTonalButtonColors(
+                                                                                        containerColor =
+                                                                                                MaterialTheme
+                                                                                                        .colorScheme
+                                                                                                        .surfaceVariant,
+                                                                                        contentColor =
+                                                                                                MaterialTheme
+                                                                                                        .colorScheme
+                                                                                                        .onSurface,
+                                                                                ),
                                                         ) {
                                                                 Icon(Icons.Rounded.Shuffle, null)
-                                                                Spacer(Modifier.width(4.dp))
+                                                                Spacer(Modifier.width(6.dp))
                                                                 Text("Shuffle")
                                                         }
                                                 }
@@ -291,6 +341,79 @@ fun FoldersScreen(
                                 }
                         }
                 }
+        }
+
+        if (showPlaylistSheet) {
+                ModalBottomSheet(onDismissRequest = { showPlaylistSheet = false }) {
+                        Column(
+                                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                        ) {
+                                Text(
+                                        "Add Folder to Playlist",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        modifier = Modifier.padding(bottom = 16.dp)
+                                )
+                                ListItem(
+                                        headlineContent = { Text("New Playlist") },
+                                        leadingContent = { Icon(Icons.Rounded.Add, null) },
+                                        modifier =
+                                                Modifier.clickable {
+                                                        showPlaylistSheet = false
+                                                        showNewPlaylistDialog = true
+                                                }
+                                )
+                                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                                LazyColumn {
+                                        items(playlists) { playlist ->
+                                                ListItem(
+                                                        headlineContent = { Text(playlist.name) },
+                                                        leadingContent = {
+                                                                Icon(
+                                                                        Icons.Rounded.PlaylistPlay,
+                                                                        null
+                                                                )
+                                                        },
+                                                        modifier =
+                                                                Modifier.clickable {
+                                                                        vm.addFolderToPlaylist(
+                                                                                playlist.id
+                                                                        )
+                                                                        showPlaylistSheet = false
+                                                                }
+                                                )
+                                        }
+                                }
+                        }
+                }
+        }
+
+        if (showNewPlaylistDialog) {
+                AlertDialog(
+                        onDismissRequest = { showNewPlaylistDialog = false },
+                        title = { Text("New Playlist") },
+                        text = {
+                                OutlinedTextField(
+                                        value = newPlaylistName,
+                                        onValueChange = { newPlaylistName = it },
+                                        label = { Text("Playlist Name") },
+                                        singleLine = true
+                                )
+                        },
+                        confirmButton = {
+                                TextButton(
+                                        onClick = {
+                                                vm.createPlaylist(newPlaylistName)
+                                                showNewPlaylistDialog = false
+                                                newPlaylistName = ""
+                                        }
+                                ) { Text("Create") }
+                        },
+                        dismissButton = {
+                                TextButton(onClick = { showNewPlaylistDialog = false }) {
+                                        Text("Cancel")
+                                }
+                        }
+                )
         }
 }
 
