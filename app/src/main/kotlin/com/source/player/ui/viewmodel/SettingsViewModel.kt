@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.source.player.data.lastfm.LastFmException
 import com.source.player.data.lastfm.LastFmRepository
 import com.source.player.data.preferences.AppPreferences
+import com.source.player.data.scanner.MediaScanner
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,6 +28,7 @@ class SettingsViewModel
 constructor(
         private val prefs: AppPreferences,
         private val lastFmRepo: LastFmRepository,
+        private val scanner: MediaScanner,
 ) : ViewModel() {
 
         val isDarkMode = prefs.isDarkMode.stateIn(viewModelScope, SharingStarted.Eagerly, true)
@@ -46,6 +48,9 @@ constructor(
                 prefs.fontFamily.stateIn(viewModelScope, SharingStarted.Eagerly, "PlusJakartaSans")
         val lastFmUser: StateFlow<String?> =
                 prefs.lastFmUser.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+        val scanProgress =
+                scanner.progressMessage.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
         private val _loginState = MutableStateFlow<LastFmLoginState>(LastFmLoginState.Idle)
         val loginState = _loginState.asStateFlow()
@@ -98,4 +103,6 @@ constructor(
         fun resetLoginState() {
                 _loginState.value = LastFmLoginState.Idle
         }
+
+        fun scanLibrary() = viewModelScope.launch { scanner.scan() }
 }
