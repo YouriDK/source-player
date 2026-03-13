@@ -10,13 +10,17 @@ Source is a modern, native Android music player application. It is designed with
 - **Advanced Playback:** Full-featured audio engine supporting smooth playback, precise seeking, and gapless transitions (powered by Androidx Media3/ExoPlayer).
 - **Queue Management:** Dynamic playback queue with seamless synchronization between player screens.
 - **Playlists:** Create and manage custom playlists.
+- **Search:** Quickly find songs, albums, and artists across your entire library.
+- **Tag Editor:** Edit song metadata (title, artist, album, etc.) directly from the app.
+- **Last.fm Integration:** Scrobble your listening history and connect your Last.fm account.
+- **Library Rescan:** Manually rescan your music library when new files are added or folders change.
+- **Customization:** Dark mode, accent color picker, and font selection to personalize your experience.
 - **Modern UI/UX:** Built entirely with Jetpack Compose featuring smooth animations, dynamic themes, and a responsive layout.
 
 ## 🛠️ Tech Stack & Tools Used
 This project was developed leveraging cutting-edge tools to accelerate design and development:
 
 - **Design:** [Google Stitch](https://stitch.google.com/) for crafting a premium, pixel-perfect user interface.
-- **AI Assistant:** Claude 4.6 (Anthropic) for rapid code generation, bug fixing, and architectural guidance.
 - **Development Environment:** Antigravity IDE.
 - **Core Technology:**
   - 100% Kotlin

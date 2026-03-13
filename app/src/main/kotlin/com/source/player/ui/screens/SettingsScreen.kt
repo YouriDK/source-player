@@ -47,6 +47,7 @@ fun SettingsScreen(
   val accentColor by vm.accentColor.collectAsState()
   val lastFmUser by vm.lastFmUser.collectAsState()
   val loginState by vm.loginState.collectAsState()
+  val scanProgress by vm.scanProgress.collectAsState()
 
   var showLastFmModal by remember { mutableStateOf(false) }
   var showColorPicker by remember { mutableStateOf(false) }
@@ -101,6 +102,11 @@ fun SettingsScreen(
       SettingsSwitch("Remember Last Tab", Icons.Rounded.Bookmark, rememberTab) {
         vm.setRememberLastTab(it)
       }
+      SettingsItem(
+              "Scan Library",
+              Icons.Rounded.Refresh,
+              subtitle = scanProgress ?: "Tap to rescan your music library",
+      ) { if (scanProgress == null) vm.scanLibrary() }
     }
   }
 
