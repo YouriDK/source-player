@@ -2,7 +2,9 @@ package com.source.player.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.source.player.data.db.dao.PlaylistDao
 import com.source.player.data.db.dao.SongDao
+import com.source.player.data.db.entity.PlaylistEntity
 import com.source.player.data.db.entity.SongEntity
 import com.source.player.service.PlaybackController
 import com.source.player.ui.screens.FolderItem
@@ -16,6 +18,7 @@ class FoldersViewModel
 @Inject
 constructor(
         private val songDao: SongDao,
+        private val playlistDao: PlaylistDao,
         private val controller: PlaybackController,
 ) : ViewModel() {
 
@@ -197,5 +200,38 @@ constructor(
         val startIndex = queue.indexOf(song).coerceAtLeast(0)
         // Launch on Main scope — PlaybackController requires Main thread
         viewModelScope.launch { controller.setQueueFromEntities(queue, startIndex) }
+    }
+
+    val playlists =
+            playlistDao.getAllFlow().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    fun createPlaylist(name: String) {
+        if (name.isBlank()) return
+        viewModelScope.launch { playlistDao.insert(PlaylistEntity(name = name)) }
+    }
+
+    fun addFolderToPlaylist(playlistId: Long) {
+        val current = _currentPath.value ?: return
+        val songs =
+                allSongs.value
+                        .filter {
+                            it.folderPath.startsWith("$current/") || it.folderPath == current
+                        }
+                        .sortedBy { it.title }
+
+        if (songs.isNotEmpty()) {
+            viewModelScope.launch {
+                val currentMax = playlistDao.maxPosition(playlistId) ?: -1
+                songs.forEachIndexed { i, song ->
+                    playlistDao.addSongToPlaylist(
+                            com.source.player.data.db.entity.PlaylistSongEntity(
+                                    playlistId = playlistId,
+                                    songId = song.id,
+                                    position = currentMax + 1 + i
+                            )
+                    )
+                }
+            }
+        }
     }
 }
