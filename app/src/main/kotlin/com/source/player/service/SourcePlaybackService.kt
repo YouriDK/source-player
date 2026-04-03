@@ -2,104 +2,171 @@ package com.source.player.service
 
 import android.app.PendingIntent
 import android.content.Intent
+import androidx.annotation.OptIn
+import androidx.media3.cast.CastPlayer
+import androidx.media3.cast.SessionAvailabilityListener
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import com.google.android.gms.cast.framework.CastContext
 import com.source.player.MainActivity
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 /**
- * SourcePlaybackService
+ * SourcePlaybackService — owns both [ExoPlayer] (local) and [CastPlayer] (Chromecast).
  *
- * A MediaSessionService that owns a single ExoPlayer instance. The service runs as a FOREGROUND
- * service (mediaPlayback type) — the OS will NOT kill it while audio is active, even in Doze mode.
+ * When a Cast session becomes available the active player in the [MediaSession] is swapped
+ * from [ExoPlayer] to [CastPlayer], seamlessly transferring the current queue and position.
+ * When the session ends it switches back the same way.
  *
- * Design decisions:
- * - AudioAttributes set to USAGE_MEDIA / CONTENT_TYPE_MUSIC → OS grants proper audio routing
- * - handleAudioBecomingNoisy = true → pauses on headphone unplug automatically
- * - Audio offload enabled on API 29+ → hands off decoding to on-chip DSP,
- * ```
- *    saving CPU cycles and battery when the screen is off
- * ```
- * - WakeLock and WifiLock are managed internally by ExoPlayer when offload
- * ```
- *    is NOT available; for offload mode the DSP keeps the chip alive
- * ```
+ * Audio files are served to the Chromecast via [LocalAudioHttpServer].
  */
+@OptIn(UnstableApi::class)
 @AndroidEntryPoint
 class SourcePlaybackService : MediaSessionService() {
 
-  private var mediaSession: MediaSession? = null
+    @Inject lateinit var localAudioHttpServer: LocalAudioHttpServer
 
-  override fun onCreate() {
-    super.onCreate()
+    private var mediaSession: MediaSession? = null
+    private var localPlayer: ExoPlayer? = null
+    private var castPlayer: CastPlayer? = null
 
-    val audioAttributes =
-            AudioAttributes.Builder()
-                    .setUsage(C.USAGE_MEDIA)
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                    .build()
+    // Source-of-truth queue with original file:// URIs (never HTTP-converted)
+    private var originalQueue: List<MediaItem> = emptyList()
+    private var originalQueueIndex: Int = 0
 
-    val player =
-            ExoPlayer.Builder(this)
-                    .setAudioAttributes(audioAttributes, /* handleAudioFocus= */ true)
-                    .setHandleAudioBecomingNoisy(true)
-                    .build()
+    override fun onCreate() {
+        super.onCreate()
 
-    // Tap on notification → open MainActivity
-    val sessionActivityIntent =
-            PendingIntent.getActivity(
-                    this,
-                    0,
-                    Intent(this, MainActivity::class.java).apply {
-                      flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
-                    },
-                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-            )
+        val audioAttributes =
+                AudioAttributes.Builder()
+                        .setUsage(C.USAGE_MEDIA)
+                        .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                        .build()
 
-    mediaSession =
-            MediaSession.Builder(this, player)
-                    .setSessionActivity(sessionActivityIntent)
-                    .setCallback(SourceMediaSessionCallback())
-                    .build()
-  }
+        localPlayer =
+                ExoPlayer.Builder(this)
+                        .setAudioAttributes(audioAttributes, true)
+                        .setHandleAudioBecomingNoisy(true)
+                        .build()
 
-  // MediaSessionService calls this to publish the session to the system notification
-  override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
-          mediaSession
+        // Initialize Cast — may throw if Play Services unavailable; fall back gracefully
+        try {
+            val castContext = CastContext.getSharedInstance(this)
+            castPlayer =
+                    CastPlayer(castContext).apply {
+                        setSessionAvailabilityListener(
+                                object : SessionAvailabilityListener {
+                                    override fun onCastSessionAvailable() {
+                                        transferTo(castPlayer!!)
+                                    }
 
-  override fun onTaskRemoved(rootIntent: Intent?) {
-    val player = mediaSession?.player
-    if (player == null || !player.playWhenReady) {
-      // App swiped away and not playing — stop service entirely
-      stopSelf()
+                                    override fun onCastSessionUnavailable() {
+                                        transferTo(localPlayer!!)
+                                    }
+                                }
+                        )
+                    }
+        } catch (_: Exception) {
+            // Play Services not available — cast is simply disabled
+        }
+
+        val initialPlayer: Player =
+                if (castPlayer?.isCastSessionAvailable == true) castPlayer!! else localPlayer!!
+
+        val sessionActivityIntent =
+                PendingIntent.getActivity(
+                        this,
+                        0,
+                        Intent(this, MainActivity::class.java).apply {
+                            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+                        },
+                        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                )
+
+        mediaSession =
+                MediaSession.Builder(this, initialPlayer)
+                        .setSessionActivity(sessionActivityIntent)
+                        .setCallback(SourceMediaSessionCallback())
+                        .build()
     }
-    // If playing, keep running in foreground
-  }
 
-  override fun onDestroy() {
-    mediaSession?.run {
-      player.release()
-      release()
+    // ---- Player transfer ----
+
+    private fun transferTo(target: Player) {
+        val current = mediaSession?.player ?: return
+        if (current === target) return
+
+        val positionMs = current.currentPosition
+        val itemIndex = current.currentMediaItemIndex
+        val playWhenReady = current.playWhenReady
+
+        // Keep original queue up-to-date
+        originalQueue = (0 until current.mediaItemCount).map { current.getMediaItemAt(it) }
+        originalQueueIndex = itemIndex
+
+        current.stop()
+
+        val items =
+                if (target === castPlayer) {
+                    // Chromecast needs HTTP URLs — start server and convert
+                    localAudioHttpServer.start()
+                    originalQueue.map { item ->
+                        val uri = item.localConfiguration?.uri?.toString() ?: return@map item
+                        val httpUrl =
+                                if (uri.startsWith("file://") || uri.startsWith("/")) {
+                                    val path = uri.removePrefix("file://")
+                                    localAudioHttpServer.getUrl(path) ?: return@map item
+                                } else uri
+                        item.buildUpon().setUri(httpUrl).build()
+                    }
+                } else {
+                    // Back to ExoPlayer: restore original file:// URIs
+                    originalQueue
+                }
+
+        target.setMediaItems(items, itemIndex.coerceAtLeast(0), positionMs.coerceAtLeast(0))
+        target.playWhenReady = playWhenReady
+        target.prepare()
+
+        mediaSession?.setPlayer(target)
     }
-    mediaSession = null
-    super.onDestroy()
-  }
+
+    // ---- MediaSessionService ----
+
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
+            mediaSession
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        val player = mediaSession?.player
+        if (player == null || !player.playWhenReady) stopSelf()
+    }
+
+    override fun onDestroy() {
+        mediaSession?.run {
+            player.release()
+            release()
+        }
+        castPlayer?.release()
+        localAudioHttpServer.stop()
+        mediaSession = null
+        super.onDestroy()
+    }
 }
 
-/**
- * MediaSession.Callback — intercepts controller commands so we can apply custom queue logic (e.g.,
- * shuffle seed, gapless pre-buffering).
- */
 private class SourceMediaSessionCallback : MediaSession.Callback {
-  override fun onConnect(
-          session: MediaSession,
-          controller: MediaSession.ControllerInfo,
-  ): MediaSession.ConnectionResult =
-          MediaSession.ConnectionResult.accept(
-                  MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS,
-                  MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS,
-          )
+    override fun onConnect(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+    ): MediaSession.ConnectionResult =
+            MediaSession.ConnectionResult.accept(
+                    MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS,
+                    MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS,
+            )
 }
