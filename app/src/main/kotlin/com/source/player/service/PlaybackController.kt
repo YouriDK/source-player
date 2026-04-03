@@ -18,6 +18,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * PlaybackController — single source of truth for playback state in the UI.
@@ -32,6 +33,7 @@ class PlaybackController
 constructor(
         @ApplicationContext private val context: Context,
         private val lastFm: LastFmRepository,
+        private val sonosManager: SonosManager,
 ) {
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -65,6 +67,20 @@ constructor(
 
   init {
     connect()
+
+    // Auto-advance to next track when Sonos finishes playing
+    scope.launch {
+      sonosManager.trackEnded.collect { advanceSonosQueue() }
+    }
+
+    // Keep _isPlaying in sync with Sonos transport state
+    scope.launch {
+      sonosManager.sonosPlaying.collect { playing ->
+        if (sonosManager.activeDevice.value != null) {
+          _isPlaying.value = playing
+        }
+      }
+    }
   }
 
   private fun connect() {
@@ -88,22 +104,61 @@ constructor(
   // ---- Public API ----
 
   fun play() {
-    controller?.play()
+    val sonos = sonosManager.activeDevice.value
+    if (sonos != null) {
+      scope.launch(Dispatchers.IO) { sonosManager.resume(sonos) }
+    } else {
+      controller?.play()
+    }
   }
+
   fun pause() {
-    controller?.pause()
+    val sonos = sonosManager.activeDevice.value
+    if (sonos != null) {
+      scope.launch(Dispatchers.IO) { sonosManager.pause(sonos) }
+    } else {
+      controller?.pause()
+    }
   }
+
   fun seekTo(positionMs: Long) {
     controller?.seekTo(positionMs)
   }
+
   fun skipToNext() {
-    controller?.seekToNextMediaItem()
+    val sonos = sonosManager.activeDevice.value
+    if (sonos != null) {
+      controller?.seekToNextMediaItem() // advance queue pointer (ExoPlayer stays paused)
+      scope.launch(Dispatchers.IO) {
+        delay(100) // let onMediaItemTransition fire first
+        sendCurrentToSonos(sonos)
+      }
+    } else {
+      controller?.seekToNextMediaItem()
+    }
   }
+
   fun skipToPrevious() {
-    controller?.seekToPreviousMediaItem()
+    val sonos = sonosManager.activeDevice.value
+    if (sonos != null) {
+      controller?.seekToPreviousMediaItem()
+      scope.launch(Dispatchers.IO) {
+        delay(100)
+        sendCurrentToSonos(sonos)
+      }
+    } else {
+      controller?.seekToPreviousMediaItem()
+    }
   }
   fun skipToQueueItem(index: Int) {
     controller?.seekTo(index, 0L)
+    val sonos = sonosManager.activeDevice.value
+    if (sonos != null) {
+      scope.launch(Dispatchers.IO) {
+        delay(100)
+        sendCurrentToSonos(sonos)
+      }
+    }
   }
 
   fun setRepeatMode(mode: Int) {
@@ -181,6 +236,8 @@ constructor(
   private val playerListener =
           object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+              // When Sonos is active, ExoPlayer is paused — don't overwrite _isPlaying
+              if (sonosManager.activeDevice.value != null) return
               _isPlaying.value = isPlaying
               if (isPlaying) startPositionTicker()
               else {
@@ -272,6 +329,47 @@ constructor(
   private fun stopPositionTicker() {
     positionTickerJob?.cancel()
     positionTickerJob = null
+  }
+
+  // ---- Sonos session management ----
+
+  /**
+   * Switches playback to the given Sonos device. Pauses local ExoPlayer and
+   * sends the currently playing track to the Sonos speaker.
+   */
+  fun activateSonos(device: SonosDevice) {
+    controller?.pause() // stop local audio, keep queue intact
+    sonosManager.activate(device)
+    scope.launch(Dispatchers.IO) {
+      sendCurrentToSonos(device)
+    }
+  }
+
+  /** Stops Sonos playback and returns to local ExoPlayer output. */
+  fun deactivateSonos() {
+    sonosManager.deactivate()
+    // ExoPlayer stays paused — user can press play to resume locally
+  }
+
+  private suspend fun sendCurrentToSonos(device: SonosDevice) {
+    val song = _currentSong.value ?: return
+    val uri = song.localConfiguration?.uri?.toString() ?: return
+    val path = if (uri.startsWith("file://")) uri.removePrefix("file://") else uri
+    val title = song.mediaMetadata.title?.toString() ?: "Unknown Track"
+    sonosManager.playFile(device, path, title)
+  }
+
+  private fun advanceSonosQueue() {
+    val device = sonosManager.activeDevice.value ?: return
+    controller?.let { c ->
+      if (c.hasNextMediaItem()) {
+        c.seekToNextMediaItem()
+        scope.launch(Dispatchers.IO) {
+          delay(150) // let onMediaItemTransition fire
+          sendCurrentToSonos(device)
+        }
+      }
+    }
   }
 
   /**

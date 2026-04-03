@@ -21,6 +21,8 @@ splashscreen            = "1.0.1"
 startup                 = "1.2.0"
 profileinstaller        = "1.4.1"
 leakcanary              = "2.14"
+mediarouter             = "1.7.0"
+play-services-cast      = "21.5.0"
 
 [libraries]
 # Core
@@ -55,6 +57,14 @@ media3-exoplayer            = { group = "androidx.media3",                  name
 media3-session              = { group = "androidx.media3",                  name = "media3-session",                   version.ref = "media3" }
 media3-ui                   = { group = "androidx.media3",                  name = "media3-ui",                        version.ref = "media3" }
 media3-common               = { group = "androidx.media3",                  name = "media3-common",                    version.ref = "media3" }
+
+# MediaRouter (for Wi-Fi/Sonos/Cast route discovery)
+mediarouter                 = { group = "androidx.mediarouter",             name = "mediarouter",                      version.ref = "mediarouter" }
+
+# Cast & Sonos support
+media3-cast                 = { group = "androidx.media3",                  name = "media3-cast",                       version.ref = "media3" }
+play-services-cast-framework= { group = "com.google.android.gms",           name = "play-services-cast-framework",      version.ref = "play-services-cast" }
+ktor-server-cio             = { group = "io.ktor",                          name = "ktor-server-cio",                   version.ref = "ktor" }
 
 # Room
 room-runtime                = { group = "androidx.room",                    name = "room-runtime",                     version.ref = "room" }

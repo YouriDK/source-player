@@ -114,6 +114,14 @@ dependencies {
     implementation(libs.media3.ui)
     implementation(libs.media3.common)
 
+    // MediaRouter (Wi-Fi / Sonos / Cast route discovery)
+    implementation(libs.mediarouter)
+
+    // Chromecast & Sonos
+    implementation(libs.media3.cast)
+    implementation(libs.play.services.cast.framework)
+    implementation(libs.ktor.server.cio)
+
     // Room
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
