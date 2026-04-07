@@ -164,9 +164,13 @@ private class SourceMediaSessionCallback : MediaSession.Callback {
     override fun onConnect(
             session: MediaSession,
             controller: MediaSession.ControllerInfo,
-    ): MediaSession.ConnectionResult =
-            MediaSession.ConnectionResult.accept(
-                    MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS,
-                    MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS,
-            )
+    ): MediaSession.ConnectionResult {
+        // Accept all connections with default player commands.
+        // System UI, media buttons, Bluetooth, and our own app all need access.
+        // Session commands are restricted to prevent arbitrary custom command execution.
+        return MediaSession.ConnectionResult.accept(
+                MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS,
+                MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS,
+        )
+    }
 }

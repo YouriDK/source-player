@@ -35,7 +35,8 @@ constructor(
         private val lastFm: LastFmRepository,
         private val sonosManager: SonosManager,
 ) {
-  private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+  private val supervisorJob = SupervisorJob()
+  private val scope = CoroutineScope(supervisorJob + Dispatchers.Main)
 
   private val _currentSong = MutableStateFlow<MediaItem?>(null)
   private val _isPlaying = MutableStateFlow(false)
@@ -59,6 +60,16 @@ constructor(
 
   fun clearError() {
     _playbackError.value = null
+  }
+
+  /** Clean up resources. Called when the application is being destroyed. */
+  fun release() {
+    positionTickerJob?.cancel()
+    scrobbleJob?.cancel()
+    controller?.removeListener(playerListener)
+    controller?.release()
+    controller = null
+    supervisorJob.cancel()
   }
 
   private var controller: MediaController? = null
@@ -316,10 +327,12 @@ constructor(
     positionTickerJob =
             scope.launch {
               while (true) {
-                controller?.let { c ->
-                  _positionMs.value = c.currentPosition
-                  val dur = c.duration
-                  if (dur > 0) _durationMs.value = dur
+                withContext(Dispatchers.Main) {
+                  controller?.let { c ->
+                    _positionMs.value = c.currentPosition
+                    val dur = c.duration
+                    if (dur > 0) _durationMs.value = dur
+                  }
                 }
                 delay(300L)
               }

@@ -72,12 +72,12 @@ fun AlbumDetailScreen(
         Spacer(Modifier.height(16.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
           Button(onClick = { vm.playAll(songs) }, shape = MaterialTheme.shapes.large) {
-            Icon(Icons.Rounded.PlayArrow, null)
+            Icon(Icons.Rounded.PlayArrow, "Play")
             Spacer(Modifier.width(4.dp))
             Text("Play")
           }
           OutlinedButton(onClick = { vm.shuffle(songs) }, shape = MaterialTheme.shapes.large) {
-            Icon(Icons.Rounded.Shuffle, null)
+            Icon(Icons.Rounded.Shuffle, "Shuffle")
             Spacer(Modifier.width(4.dp))
             Text("Shuffle")
           }
@@ -187,7 +187,7 @@ fun PlaylistDetailScreen(navController: NavController, playlistId: Long) {
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = Color.White,
             ) {
-              Icon(Icons.Rounded.Add, null)
+              Icon(Icons.Rounded.Add, "Add")
               Spacer(Modifier.width(8.dp))
               Text("Add Songs")
             }
@@ -204,7 +204,7 @@ fun PlaylistDetailScreen(navController: NavController, playlistId: Long) {
                   onClick = { vm.playSongs() },
                   shape = MaterialTheme.shapes.large,
           ) {
-            Icon(Icons.Rounded.PlayArrow, null)
+            Icon(Icons.Rounded.PlayArrow, "Play")
             Spacer(Modifier.width(4.dp))
             Text("Play All")
           }
@@ -212,7 +212,7 @@ fun PlaylistDetailScreen(navController: NavController, playlistId: Long) {
                   onClick = { vm.shuffleSongs() },
                   shape = MaterialTheme.shapes.large,
           ) {
-            Icon(Icons.Rounded.Shuffle, null)
+            Icon(Icons.Rounded.Shuffle, "Shuffle")
             Spacer(Modifier.width(4.dp))
             Text("Shuffle")
           }
@@ -244,7 +244,7 @@ fun PlaylistDetailScreen(navController: NavController, playlistId: Long) {
             )
             Spacer(Modifier.height(16.dp))
             FilledTonalButton(onClick = { showAddSheet = true }) {
-              Icon(Icons.Rounded.Add, null)
+              Icon(Icons.Rounded.Add, "Add")
               Spacer(Modifier.width(4.dp))
               Text("Add Songs")
             }
@@ -270,7 +270,7 @@ fun PlaylistDetailScreen(navController: NavController, playlistId: Long) {
                     leadingContent = {
                       AsyncImage(
                               model = song.albumArtUri,
-                              contentDescription = null,
+                              contentDescription = "Album art",
                               contentScale = ContentScale.Crop,
                               modifier = Modifier.size(48.dp).clip(MaterialTheme.shapes.small),
                       )
@@ -316,7 +316,7 @@ fun PlaylistDetailScreen(navController: NavController, playlistId: Long) {
                 value = searchQuery,
                 onValueChange = { vm.setSearchQuery(it) },
                 placeholder = { Text("Search songs...") },
-                leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                leadingIcon = { Icon(Icons.Rounded.Search, "Search") },
                 singleLine = true,
                 shape = MaterialTheme.shapes.large,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),

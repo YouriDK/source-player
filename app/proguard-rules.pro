@@ -31,3 +31,9 @@
 # Keep Kotlin metadata for reflection
 -keep class kotlin.Metadata { *; }
 -keepclassmembers class kotlin.Metadata { *; }
+
+# Strip debug and verbose logs in release builds
+-assumenosideeffects class android.util.Log {
+    public static int d(...);
+    public static int v(...);
+}

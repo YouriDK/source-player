@@ -34,23 +34,48 @@ constructor(
 ) {
     companion object {
         const val PORT = 8888
+        private val ALLOWED_EXTENSIONS = setOf("mp3", "flac", "m4a", "aac", "ogg", "oga", "wav", "opus", "wma")
     }
 
     private var engine: EmbeddedServer<*, *>? = null
 
+    /** Per-session random token — remote clients must include this to access files. */
+    private var accessToken: String = java.util.UUID.randomUUID().toString()
+
     fun start() {
         if (engine != null) return
+        accessToken = java.util.UUID.randomUUID().toString()
         engine =
                 embeddedServer(CIO, port = PORT) {
                             routing {
-                                get("/{path...}") {
+                                get("/{token}/{path...}") {
+                                    // Validate access token
+                                    val token = call.parameters["token"]
+                                    if (token != accessToken) {
+                                        call.respond(HttpStatusCode.Forbidden)
+                                        return@get
+                                    }
+
                                     val pathSegments =
                                             call.parameters.getAll("path") ?: emptyList()
                                     val filePath =
                                             "/${pathSegments.joinToString("/")}".let {
                                                 java.net.URLDecoder.decode(it, "UTF-8")
                                             }
-                                    val file = File(filePath)
+
+                                    // Block path traversal
+                                    val file = File(filePath).canonicalFile
+                                    if (file.path != filePath.let { File(it).canonicalPath }) {
+                                        call.respond(HttpStatusCode.Forbidden)
+                                        return@get
+                                    }
+
+                                    // Only serve audio files
+                                    if (file.extension.lowercase() !in ALLOWED_EXTENSIONS) {
+                                        call.respond(HttpStatusCode.Forbidden)
+                                        return@get
+                                    }
+
                                     if (file.exists() && file.canRead()) {
                                         val ct =
                                                 when (file.extension.lowercase()) {
@@ -91,7 +116,7 @@ constructor(
     fun getUrl(filePath: String): String? {
         val ip = getDeviceIp() ?: return null
         val encoded = filePath.split("/").joinToString("/") { java.net.URLEncoder.encode(it, "UTF-8") }
-        return "http://$ip:$PORT/$encoded"
+        return "http://$ip:$PORT/$accessToken/$encoded"
     }
 
     private fun getDeviceIp(): String? {

@@ -39,7 +39,7 @@ fun SearchScreen(
             onValueChange = vm::onQueryChange,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             placeholder = { Text("Songs, albums, artists…") },
-            leadingIcon = { Icon(Icons.Rounded.Search, null) },
+            leadingIcon = { Icon(Icons.Rounded.Search, "Search") },
             trailingIcon = {
               if (query.isNotEmpty()) {
                 IconButton(onClick = { vm.onQueryChange("") }) {
@@ -144,7 +144,7 @@ private fun SongResultItem(song: SongEntity, onClick: () -> Unit) {
           leadingContent = {
             AsyncImage(
                     model = song.albumArtUri,
-                    contentDescription = null,
+                    contentDescription = "Album art",
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.size(44.dp).clip(MaterialTheme.shapes.small),
             )

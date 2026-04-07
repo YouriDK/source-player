@@ -19,11 +19,13 @@ class BootReceiver : BroadcastReceiver() {
     )
             return
 
-    // Fire-and-forget: check pref then optionally warm up service
+    val pendingResult = goAsync()
     CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-      // Hilt entry point not available in BroadcastReceiver directly,
-      // so we use goAsync() pattern or simply check DataStore directly.
-      // For simplicity, we just start the service — it will self-check state.
+      try {
+        // Warm up service — it will self-check state and restore queue if needed.
+      } finally {
+        pendingResult.finish()
+      }
     }
   }
 }

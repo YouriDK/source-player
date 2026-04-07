@@ -52,7 +52,7 @@ interface SongDao {
   @Query("SELECT * FROM songs WHERE dateAdded >= :since ORDER BY dateAdded DESC")
   fun getAddedSince(since: Long): Flow<List<SongEntity>>
 
-  @Query("SELECT * FROM songs WHERE id NOT IN (SELECT path FROM blacklisted_folders)")
+  @Query("SELECT * FROM songs WHERE folderPath NOT IN (SELECT path FROM blacklisted_folders)")
   fun getAllExcludingBlacklisted(): Flow<List<SongEntity>>
 
   @Upsert suspend fun upsertAll(songs: List<SongEntity>)

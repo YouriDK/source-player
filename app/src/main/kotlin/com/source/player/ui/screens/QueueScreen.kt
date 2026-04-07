@@ -48,7 +48,7 @@ fun QueueScreen(
     )
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 8.dp)) {
-      itemsIndexed(queue, key = { i, _ -> i }) { i, item ->
+      itemsIndexed(queue, key = { i, item -> "${item.mediaId}_$i" }) { i, item ->
         val isCurrentTrack = i == currentIndex
         ListItem(
                 headlineContent = {

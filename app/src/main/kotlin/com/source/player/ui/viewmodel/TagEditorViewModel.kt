@@ -74,13 +74,13 @@ constructor(
                 viewModelScope.launch {
                         val original = _song.value ?: return@launch
 
-                        val updatedTitle = title.value.trim().ifEmpty { original.title }
-                        val updatedArtist = artist.value.trim().ifEmpty { original.artist }
-                        val updatedAlbum = album.value.trim().ifEmpty { original.album }
-                        val updatedYear = year.value.trim().toIntOrNull() ?: original.year
+                        val updatedTitle = title.value.trim().take(500).ifEmpty { original.title }
+                        val updatedArtist = artist.value.trim().take(300).ifEmpty { original.artist }
+                        val updatedAlbum = album.value.trim().take(300).ifEmpty { original.album }
+                        val updatedYear = year.value.trim().toIntOrNull()?.coerceIn(0, 9999) ?: original.year
                         val updatedTrack =
-                                trackNumber.value.trim().toIntOrNull() ?: original.trackNumber
-                        val updatedGenre = genre.value.trim()
+                                trackNumber.value.trim().toIntOrNull()?.coerceIn(0, 9999) ?: original.trackNumber
+                        val updatedGenre = genre.value.trim().take(200)
 
                         // Save the current song
                         songDao.update(

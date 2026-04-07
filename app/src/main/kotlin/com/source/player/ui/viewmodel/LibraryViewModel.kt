@@ -7,8 +7,10 @@ import com.source.player.data.db.entity.*
 import com.source.player.service.PlaybackController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @HiltViewModel
 class LibraryViewModel
@@ -43,10 +45,12 @@ constructor(
                 }
         }
 
-        fun shuffleAllSongs() {
-                val allSongs = songs.value.shuffled()
-                if (allSongs.isNotEmpty()) {
-                        controller.setQueue(allSongs.map { it.toMediaItem() }, 0)
+        fun shuffleAllSongs() = viewModelScope.launch {
+                val shuffled = withContext(Dispatchers.Default) {
+                        songs.value.shuffled()
+                }
+                if (shuffled.isNotEmpty()) {
+                        controller.setQueue(shuffled.map { it.toMediaItem() }, 0)
                 }
         }
 
