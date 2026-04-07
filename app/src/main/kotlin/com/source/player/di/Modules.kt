@@ -12,6 +12,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import com.source.player.BuildConfig
 import io.ktor.client.*
 import io.ktor.client.engine.android.*
 import io.ktor.client.plugins.contentnegotiation.*
@@ -28,7 +29,7 @@ object DatabaseModule {
   @Singleton
   fun provideDatabase(@ApplicationContext ctx: Context): AppDatabase =
           Room.databaseBuilder(ctx, AppDatabase::class.java, "source_db")
-                  .fallbackToDestructiveMigrationFrom()
+                  .fallbackToDestructiveMigration()
                   .build()
 
   @Provides fun provideSongDao(db: AppDatabase) = db.songDao()
@@ -55,7 +56,9 @@ object NetworkModule {
   fun provideKtorClient(json: Json): HttpClient =
           HttpClient(Android) {
             install(ContentNegotiation) { json(json) }
-            install(Logging) { level = LogLevel.BODY }
+            install(Logging) {
+              level = if (BuildConfig.DEBUG) LogLevel.HEADERS else LogLevel.NONE
+            }
             engine {
               connectTimeout = 15_000
               socketTimeout = 30_000

@@ -141,7 +141,7 @@ constructor(
                 repeat(3) {
                     s.send(DatagramPacket(reqZone, reqZone.size, group, 1900))
                     s.send(DatagramPacket(reqRenderer, reqRenderer.size, group, 1900))
-                    Thread.sleep(150)
+                    java.lang.Thread.sleep(150) // Blocking sleep OK here — runs on IO dispatcher inside socket.use
                 }
 
                 val buf = ByteArray(4096)

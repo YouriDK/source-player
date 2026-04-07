@@ -34,21 +34,20 @@ constructor(
         val playlists =
                 playlistDao
                         .getAllFlow()
-                        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+                        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
         // Use getAddedSince(0) to get all songs sorted by dateAdded DESC, then take 10
         val recentlyAdded =
                 songDao.getAddedSince(0L)
                         .map { it.take(10) }
-                        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+                        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
-        // Quick picks: take some songs from the library. We shuffle once per flow collection or
-        // just use the first few if we want it stable.
-        // For a more dynamic feel, we shuffle the list but limit to 10
+        // Quick picks: stable shuffle per session using a fixed random seed
+        private val quickPickSeed = System.currentTimeMillis().toInt()
         val quickPicks =
                 songDao.getAllFlow()
-                        .map { it.shuffled().take(10) }
-                        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+                        .map { it.shuffled(kotlin.random.Random(quickPickSeed)).take(10) }
+                        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
         /**
          * Exposes scanner progress message ("Scanning… 42 tracks found") or null when idle.

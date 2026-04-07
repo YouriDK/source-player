@@ -209,6 +209,6 @@ private fun PlaylistPickerRow(playlist: PlaylistEntity, onClick: () -> Unit) {
                 style = MaterialTheme.typography.bodyLarge,
                 modifier = Modifier.weight(1f)
         )
-        Icon(Icons.Rounded.Add, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Icon(Icons.Rounded.Add, "Add to playlist", tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

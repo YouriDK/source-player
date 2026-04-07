@@ -230,7 +230,7 @@ fun FoldersScreen(
                                                                         MaterialTheme.shapes
                                                                                 .extraLarge,
                                                         ) {
-                                                                Icon(Icons.Rounded.PlayArrow, null)
+                                                                Icon(Icons.Rounded.PlayArrow, "Play")
                                                                 Spacer(Modifier.width(6.dp))
                                                                 Text("Play All")
                                                         }
@@ -253,7 +253,7 @@ fun FoldersScreen(
                                                                                                         .onSurface,
                                                                                 ),
                                                         ) {
-                                                                Icon(Icons.Rounded.Shuffle, null)
+                                                                Icon(Icons.Rounded.Shuffle, "Shuffle")
                                                                 Spacer(Modifier.width(6.dp))
                                                                 Text("Shuffle")
                                                         }
@@ -355,7 +355,7 @@ fun FoldersScreen(
                                 )
                                 ListItem(
                                         headlineContent = { Text("New Playlist") },
-                                        leadingContent = { Icon(Icons.Rounded.Add, null) },
+                                        leadingContent = { Icon(Icons.Rounded.Add, "Add") },
                                         modifier =
                                                 Modifier.clickable {
                                                         showPlaylistSheet = false

@@ -117,14 +117,14 @@ fun TagEditorScreen(
             if (song?.albumArtUri != null) {
               AsyncImage(
                       model = song?.albumArtUri,
-                      contentDescription = null,
+                      contentDescription = "Music",
                       contentScale = ContentScale.Crop,
                       modifier = Modifier.fillMaxSize(),
               )
             } else {
               Icon(
                       Icons.Rounded.MusicNote,
-                      contentDescription = null,
+                      contentDescription = "Music",
                       tint = MaterialTheme.colorScheme.onSurfaceVariant,
                       modifier = Modifier.size(20.dp),
               )
@@ -226,7 +226,7 @@ private fun TagTextField(
           trailingIcon = {
             Icon(
                     trailingIcon,
-                    contentDescription = null,
+                    contentDescription = "Field icon",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(18.dp),
             )
@@ -336,7 +336,7 @@ private fun ImpactedSongsSection(
           ) {
             Icon(
                     Icons.Rounded.MusicNote,
-                    contentDescription = null,
+                    contentDescription = "Song",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(16.dp),
             )
@@ -359,7 +359,7 @@ private fun ImpactedSongsSection(
           }
           Icon(
                   Icons.Rounded.CheckCircle,
-                  contentDescription = null,
+                  contentDescription = "In folder",
                   tint = MaterialTheme.colorScheme.primary,
                   modifier = Modifier.size(20.dp),
           )

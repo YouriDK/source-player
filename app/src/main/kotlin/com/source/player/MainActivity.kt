@@ -42,6 +42,11 @@ class MainActivity : ComponentActivity() {
             // Result handled reactively — HomeScreen observes checkSelfPermission() via ViewModel
           }
 
+  private val notificationPermissionLauncher =
+          registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ ->
+            // Media3 handles notification display regardless of permission result
+          }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     installSplashScreen()
     super.onCreate(savedInstanceState)
@@ -49,6 +54,11 @@ class MainActivity : ComponentActivity() {
 
     // Request on first launch — no-op if already granted
     permissionLauncher.launch(audioPermission)
+
+    // Request notification permission on Android 13+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
 
     setContent {
       val settingsVm: SettingsViewModel = hiltViewModel()

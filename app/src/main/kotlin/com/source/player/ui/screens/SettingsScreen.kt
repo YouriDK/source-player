@@ -196,7 +196,7 @@ fun SettingsSwitch(
 ) {
   ListItem(
           headlineContent = { Text(title, style = MaterialTheme.typography.bodyLarge) },
-          leadingContent = { Icon(icon, null, tint = MaterialTheme.colorScheme.primary) },
+          leadingContent = { Icon(icon, title, tint = MaterialTheme.colorScheme.primary) },
           trailingContent = { Switch(checked = checked, onCheckedChange = onToggle) },
           colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
   )
@@ -216,7 +216,7 @@ fun SettingsItem(title: String, icon: ImageVector, subtitle: String? = null, onC
                       )
                     }
                   },
-          leadingContent = { Icon(icon, null, tint = MaterialTheme.colorScheme.primary) },
+          leadingContent = { Icon(icon, title, tint = MaterialTheme.colorScheme.primary) },
           trailingContent = {
             Icon(
                     Icons.Rounded.ChevronRight,
@@ -268,7 +268,7 @@ fun ColorPickerSheet(
           ) {
             if (selected) {
               Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                Icon(Icons.Rounded.Check, null, tint = Color.White)
+                Icon(Icons.Rounded.Check, "Selected", tint = Color.White)
               }
             }
           }
@@ -471,7 +471,7 @@ fun AudioOutputSheet(
                     leadingContent = {
                       Icon(
                               deviceIcon(device.type),
-                              contentDescription = null,
+                              contentDescription = device.name,
                               tint =
                                       if (isActive) MaterialTheme.colorScheme.primary
                                       else MaterialTheme.colorScheme.onSurfaceVariant,

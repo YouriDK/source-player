@@ -13,6 +13,7 @@ import androidx.room.PrimaryKey
                         Index("title"),
                         Index("dateAdded"),
                         Index("genre"),
+                        Index("folderPath"),
                 ]
 )
 data class SongEntity(

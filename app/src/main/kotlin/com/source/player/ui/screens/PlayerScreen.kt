@@ -106,7 +106,7 @@ fun PlayerScreen(
                 song?.let {
                         AsyncImage(
                                 model = it.mediaMetadata.artworkUri,
-                                contentDescription = null,
+                                contentDescription = null, // Decorative background — no a11y needed
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize().blur(80.dp).alpha(0.25f),
                         )
@@ -452,7 +452,7 @@ private fun AlbumArtCard(artUri: Uri?) {
                         ) {
                                 Icon(
                                         Icons.Rounded.Album,
-                                        null,
+                                        "No album art",
                                         modifier = Modifier.size(80.dp),
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

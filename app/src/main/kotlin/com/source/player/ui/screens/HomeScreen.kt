@@ -225,7 +225,7 @@ fun HomeScreen(
                                 ) {
                                         Icon(
                                                 Icons.Rounded.LibraryMusic,
-                                                null,
+                                                "Empty library",
                                                 modifier = Modifier.size(64.dp),
                                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -258,7 +258,7 @@ fun HomeScreen(
                                                         ) {
                                                                 Icon(
                                                                         Icons.Rounded.FolderOpen,
-                                                                        null,
+                                                                        "Storage access",
                                                                         modifier =
                                                                                 Modifier.size(
                                                                                         40.dp
@@ -304,7 +304,7 @@ fun HomeScreen(
                                                                 ) {
                                                                         Icon(
                                                                                 Icons.Rounded.Lock,
-                                                                                null
+                                                                                "Grant permission"
                                                                         )
                                                                         Spacer(Modifier.width(8.dp))
                                                                         Text("Grant Permission")
@@ -337,7 +337,7 @@ fun HomeScreen(
                                                         onClick = { vm.scanLibrary() },
                                                         shape = MaterialTheme.shapes.large,
                                                 ) {
-                                                        Icon(Icons.Rounded.Search, null)
+                                                        Icon(Icons.Rounded.Search, "Scan")
                                                         Spacer(Modifier.width(8.dp))
                                                         Text("Scan Library")
                                                 }
@@ -369,7 +369,7 @@ private fun ContinueListeningCard(
                 ) {
                         AsyncImage(
                                 model = song.mediaMetadata.artworkUri,
-                                contentDescription = null,
+                                contentDescription = "Album art",
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.size(64.dp).clip(MaterialTheme.shapes.medium),
                         )
@@ -406,7 +406,7 @@ private fun QuickPickItem(song: SongEntity, onClick: () -> Unit) {
         ) {
                 AsyncImage(
                         model = song.albumArtUri,
-                        contentDescription = null,
+                        contentDescription = "Album art for ${song.title}",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.size(48.dp).clip(MaterialTheme.shapes.small)
                 )
@@ -427,7 +427,7 @@ private fun QuickPickItem(song: SongEntity, onClick: () -> Unit) {
                 }
                 Icon(
                         Icons.Rounded.MoreVert,
-                        contentDescription = "More",
+                        contentDescription = "Song options",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
         }
@@ -465,7 +465,7 @@ private fun RecentlyAddedItem(song: SongEntity, onClick: () -> Unit) {
         Column(modifier = Modifier.width(140.dp).clickable(onClick = onClick)) {
                 AsyncImage(
                         model = song.albumArtUri,
-                        contentDescription = null,
+                        contentDescription = "Album art for ${song.title}",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.size(140.dp).clip(MaterialTheme.shapes.medium)
                 )

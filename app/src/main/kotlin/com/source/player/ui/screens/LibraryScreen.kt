@@ -117,7 +117,7 @@ fun LibraryScreen(
                                                                         MaterialTheme.shapes
                                                                                 .extraLarge,
                                                         ) {
-                                                                Icon(Icons.Rounded.PlayArrow, null)
+                                                                Icon(Icons.Rounded.PlayArrow, "Play all")
                                                                 Spacer(Modifier.width(6.dp))
                                                                 Text("Play All")
                                                         }
@@ -140,7 +140,7 @@ fun LibraryScreen(
                                                                                                         .onSurface,
                                                                                 ),
                                                         ) {
-                                                                Icon(Icons.Rounded.Shuffle, null)
+                                                                Icon(Icons.Rounded.Shuffle, "Shuffle")
                                                                 Spacer(Modifier.width(6.dp))
                                                                 Text("Shuffle")
                                                         }
@@ -211,7 +211,7 @@ fun SongsList(
                                 leadingContent = {
                                         AsyncImage(
                                                 model = song.albumArtUri,
-                                                contentDescription = null,
+                                                contentDescription = "Album art",
                                                 contentScale = ContentScale.Crop,
                                                 modifier =
                                                         Modifier.size(48.dp)
@@ -266,7 +266,7 @@ fun AlbumsGrid(
                                 Column {
                                         AsyncImage(
                                                 model = album.artUri,
-                                                contentDescription = null,
+                                                contentDescription = "Album art for ${album.title}",
                                                 contentScale = ContentScale.Crop,
                                                 modifier = Modifier.fillMaxWidth().aspectRatio(1f),
                                         )
@@ -314,7 +314,7 @@ fun ArtistsList(
                                 leadingContent = {
                                         Icon(
                                                 Icons.Rounded.Person,
-                                                null,
+                                                "Artist",
                                                 modifier = Modifier.size(40.dp),
                                                 tint = MaterialTheme.colorScheme.primary
                                         )
@@ -350,7 +350,7 @@ fun PlaylistsList(
                                 style = MaterialTheme.typography.titleMedium
                         )
                         FilledTonalButton(onClick = { showDialog = true }) {
-                                Icon(Icons.Rounded.Add, null)
+                                Icon(Icons.Rounded.Add, "New playlist")
                                 Spacer(Modifier.width(4.dp))
                                 Text("New")
                         }
@@ -362,7 +362,7 @@ fun PlaylistsList(
                                         leadingContent = {
                                                 Icon(
                                                         Icons.Rounded.PlaylistPlay,
-                                                        null,
+                                                        "Playlist",
                                                         modifier = Modifier.size(40.dp),
                                                         tint = MaterialTheme.colorScheme.primary
                                                 )
@@ -422,7 +422,7 @@ fun GenresList(genres: List<GenreEntity>) {
                                 leadingContent = {
                                         Icon(
                                                 Icons.Rounded.MusicNote,
-                                                null,
+                                                "Genre",
                                                 modifier = Modifier.size(36.dp),
                                                 tint = MaterialTheme.colorScheme.primary
                                         )
