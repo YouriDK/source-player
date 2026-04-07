@@ -15,6 +15,7 @@ The app requests access to audio files stored on your device in order to provide
 ### Network Access
 
 Network access is used exclusively for:
+
 - **Last.fm Integration** (optional): If you choose to enable Last.fm scrobbling in Settings, the app communicates with Last.fm's servers to submit your listening history and display "Now Playing" status.
 - **Sonos & Chromecast**: The app uses your local Wi-Fi network to discover and stream audio to Sonos speakers and Chromecast devices. No data is sent to external servers for this purpose.
 
@@ -29,6 +30,7 @@ On Android 13+, the app requests notification permission to display playback con
 ## Last.fm Integration
 
 If you enable Last.fm scrobbling:
+
 - Your Last.fm username and session key are stored locally on your device.
 - Your listening history (artist, track, album, timestamp) is sent to Last.fm when you listen to a song.
 - You can disable scrobbling or log out at any time in Settings.
@@ -49,4 +51,4 @@ No data is shared with third parties, except as described in the Last.fm section
 ## Contact
 
 If you have any questions, you can contact:
-[music.source.app@gmail.com](mailto:music.source.app@gmail.com)
+[source.player.support@gmail.com](mailto:source.player.support@gmail.com)
