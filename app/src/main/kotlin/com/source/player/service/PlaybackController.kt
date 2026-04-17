@@ -7,7 +7,10 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.source.player.data.db.dao.SongDao
+import com.source.player.data.db.entity.SongEntity
 import com.source.player.data.lastfm.LastFmRepository
+import com.source.player.data.preferences.AppPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -34,6 +37,8 @@ constructor(
         @ApplicationContext private val context: Context,
         private val lastFm: LastFmRepository,
         private val sonosManager: SonosManager,
+        private val songDao: SongDao,
+        private val prefs: AppPreferences,
 ) {
   private val supervisorJob = SupervisorJob()
   private val scope = CoroutineScope(supervisorJob + Dispatchers.Main)
@@ -75,6 +80,8 @@ constructor(
   private var controller: MediaController? = null
   private var positionTickerJob: Job? = null
   private var scrobbleJob: Job? = null // cancelled on track change or pause
+  /** Tracks the mediaId of the last track pushed to the active Sonos device. */
+  private var lastSonosTrackId: String? = null
 
   init {
     connect()
@@ -117,7 +124,14 @@ constructor(
   fun play() {
     val sonos = sonosManager.activeDevice.value
     if (sonos != null) {
-      scope.launch(Dispatchers.IO) { sonosManager.resume(sonos) }
+      val currentId = _currentSong.value?.mediaId
+      if (currentId != null && currentId == lastSonosTrackId) {
+        // Same track already on Sonos — just resume
+        scope.launch(Dispatchers.IO) { sonosManager.resume(sonos) }
+      } else {
+        // Track changed or never sent — push it to Sonos
+        scope.launch(Dispatchers.IO) { sendCurrentToSonos(sonos) }
+      }
     } else {
       controller?.play()
     }
@@ -189,58 +203,51 @@ constructor(
     controller?.apply {
       setMediaItems(items, startIndex, 0L)
       prepare()
-      play()
+      val sonos = sonosManager.activeDevice.value
+      if (sonos != null) {
+        // Don't play locally — push the selected track to Sonos
+        scope.launch(Dispatchers.IO) {
+          delay(100) // let onMediaItemTransition fire
+          sendCurrentToSonos(sonos)
+        }
+      } else {
+        play()
+      }
     }
             ?: run { connect() }
   }
 
   fun setQueueFromEntities(
-          songs: List<com.source.player.data.db.entity.SongEntity>,
+          songs: List<SongEntity>,
           startIndex: Int = 0
   ) {
-    val items =
-            songs.map { song ->
-              MediaItem.Builder()
-                      .setMediaId(song.id.toString())
-                      .setUri(song.path)
-                      .setMediaMetadata(
-                              androidx.media3.common.MediaMetadata.Builder()
-                                      .setTitle(song.title)
-                                      .setArtist(song.artist)
-                                      .setAlbumTitle(song.album)
-                                      .setArtworkUri(
-                                              song.albumArtUri?.let { android.net.Uri.parse(it) }
-                                      )
-                                      .build()
-                      )
-                      .build()
-            }
-    setQueue(items, startIndex)
+    setQueue(songs.map { songEntityToMediaItem(it) }, startIndex)
   }
 
   fun addToQueue(item: MediaItem) {
     controller?.addMediaItem(item)
   }
 
-  fun addNextToQueue(song: com.source.player.data.db.entity.SongEntity) {
-    val item =
-            MediaItem.Builder()
-                    .setMediaId(song.id.toString())
-                    .setUri(song.path)
-                    .setMediaMetadata(
-                            androidx.media3.common.MediaMetadata.Builder()
-                                    .setTitle(song.title)
-                                    .setArtist(song.artist)
-                                    .setAlbumTitle(song.album)
-                                    .setArtworkUri(
-                                            song.albumArtUri?.let { android.net.Uri.parse(it) }
-                                    )
-                                    .build()
-                    )
-                    .build()
+  fun addNextToQueue(song: SongEntity) {
     val insertIndex = (controller?.currentMediaItemIndex ?: 0) + 1
-    controller?.addMediaItem(insertIndex, item)
+    controller?.addMediaItem(insertIndex, songEntityToMediaItem(song))
   }
+
+  private fun songEntityToMediaItem(song: SongEntity): MediaItem =
+          MediaItem.Builder()
+                  .setMediaId(song.id.toString())
+                  .setUri(song.path)
+                  .setMediaMetadata(
+                          androidx.media3.common.MediaMetadata.Builder()
+                                  .setTitle(song.title)
+                                  .setArtist(song.artist)
+                                  .setAlbumTitle(song.album)
+                                  .setArtworkUri(
+                                          song.albumArtUri?.let { android.net.Uri.parse(it) }
+                                  )
+                                  .build()
+                  )
+                  .build()
 
   // ---- Player.Listener ----
 
@@ -254,6 +261,7 @@ constructor(
               else {
                 stopPositionTicker()
                 scrobbleJob?.cancel() // don't scrobble if paused/stopped
+                persistState() // capture pause point
               }
             }
             override fun onMediaItemTransition(item: MediaItem?, reason: Int) {
@@ -263,6 +271,7 @@ constructor(
               scrobbleJob?.cancel()
               // Fire Now Playing + start scrobble timer for the new track
               item?.let { startScrobbleSession(it) }
+              persistState()
             }
             override fun onRepeatModeChanged(repeatMode: Int) {
               _repeatMode.value = repeatMode
@@ -277,6 +286,7 @@ constructor(
               }
               _queueItems.value = items
               _durationMs.value = controller?.duration?.takeIf { it > 0 } ?: 0L
+              persistState()
             }
             override fun onEvents(player: Player, events: Player.Events) {
               _positionMs.value = player.currentPosition
@@ -320,6 +330,51 @@ constructor(
     }
     _queueItems.value = items
     if (player.isPlaying) startPositionTicker()
+
+    // If the player has no queue (cold start), try restoring the saved one.
+    if (player.mediaItemCount == 0) {
+      scope.launch { restoreQueueIfEnabled() }
+    }
+  }
+
+  // ---- Queue persistence ----
+
+  private fun persistState() {
+    val ids = _queueItems.value.mapNotNull { it.mediaId.toLongOrNull() }.joinToString(",")
+    val index = controller?.currentMediaItemIndex ?: 0
+    val pos = controller?.currentPosition ?: 0L
+    scope.launch { prefs.saveQueueState(ids, index, pos) }
+  }
+
+  private suspend fun restoreQueueIfEnabled() {
+    if (!prefs.restoreState.first()) return
+    val idsCsv = prefs.savedQueueJson.first().orEmpty()
+    if (idsCsv.isBlank()) return
+    val ids = idsCsv.split(",").mapNotNull { it.toLongOrNull() }
+    if (ids.isEmpty()) return
+
+    // Resolve IDs → SongEntity in one query, preserving original order; skip missing.
+    val songs =
+            withContext(Dispatchers.IO) {
+              val byId = songDao.getByIds(ids).associateBy { it.id }
+              ids.mapNotNull { byId[it] }
+            }
+    if (songs.isEmpty()) return
+
+    val savedIndex = prefs.savedQueueIndex.first().coerceIn(0, songs.lastIndex)
+    val savedPosition = prefs.savedQueuePosition.first()
+    val items = songs.map { songEntityToMediaItem(it) }
+
+    withContext(Dispatchers.Main) {
+      controller?.apply {
+        // Only restore if still empty (user may have started playback meanwhile).
+        if (mediaItemCount == 0) {
+          setMediaItems(items, savedIndex, savedPosition)
+          prepare()
+          // Silent restore — do NOT call play().
+        }
+      }
+    }
   }
 
   private fun startPositionTicker() {
@@ -361,6 +416,7 @@ constructor(
   /** Stops Sonos playback and returns to local ExoPlayer output. */
   fun deactivateSonos() {
     sonosManager.deactivate()
+    lastSonosTrackId = null
     // ExoPlayer stays paused — user can press play to resume locally
   }
 
@@ -369,6 +425,7 @@ constructor(
     val uri = song.localConfiguration?.uri?.toString() ?: return
     val path = if (uri.startsWith("file://")) uri.removePrefix("file://") else uri
     val title = song.mediaMetadata.title?.toString() ?: "Unknown Track"
+    lastSonosTrackId = song.mediaId
     sonosManager.playFile(device, path, title)
   }
 

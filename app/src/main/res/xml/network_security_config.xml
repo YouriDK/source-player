@@ -1,13 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Block cleartext (HTTP) traffic by default -->
-    <base-config cleartextTrafficPermitted="false" />
+    <!--
+        Cleartext HTTP is allowed because the app talks to Sonos speakers, Chromecast
+        receivers, and the in-app local audio server over LAN IPs (e.g. 192.168.1.x:1400).
 
-    <!-- Allow cleartext only for local HTTP server (Sonos/Cast streaming) -->
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">localhost</domain>
-        <domain includeSubdomains="true">10.0.0.0</domain>
-        <domain includeSubdomains="true">172.16.0.0</domain>
-        <domain includeSubdomains="true">192.168.0.0</domain>
-    </domain-config>
+        Android's <domain> element only matches DNS hostnames, never IP literals or CIDR
+        ranges, so there is no way to whitelist "private LAN only" here. All other network
+        calls in the app (Last.fm, etc.) already use HTTPS.
+    -->
+    <base-config cleartextTrafficPermitted="true" />
 </network-security-config>
