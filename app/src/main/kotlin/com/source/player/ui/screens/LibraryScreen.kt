@@ -47,7 +47,7 @@ import com.source.player.ui.theme.sourceText
 import com.source.player.ui.viewmodel.LibraryViewModel
 import kotlinx.coroutines.launch
 
-private enum class LibraryTab { Songs, Albums, Artists, Playlists, Genres, Folders }
+private enum class LibraryTab { Songs, Albums, Artists, Playlists, Genres }
 
 @Composable
 fun LibraryScreen(
@@ -99,13 +99,7 @@ fun LibraryScreen(
                 PillTab(
                         label = tab.name,
                         selected = tab == selectedTab,
-                        onClick = {
-                            if (tab == LibraryTab.Folders) {
-                                navController.navigate(Routes.FOLDERS)
-                            } else {
-                                selectedTab = tab
-                            }
-                        },
+                        onClick = { selectedTab = tab },
                 )
             }
         }
@@ -140,7 +134,6 @@ fun LibraryScreen(
                             },
                     )
             LibraryTab.Genres -> VinylGenresList(genres)
-            LibraryTab.Folders -> Unit // Folders opens its own route
         }
     }
 }
