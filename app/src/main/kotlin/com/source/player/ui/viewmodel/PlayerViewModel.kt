@@ -44,6 +44,15 @@ constructor(
         val playbackError =
                 controller.playbackError.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+        val sonosActive =
+                controller
+                        .sonosActive
+                        .map { it != null }
+                        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+        val sonosVolume = controller.sonosVolume.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+        fun setSonosVolume(level: Int) = controller.setSonosVolume(level)
+
         fun clearError() = controller.clearError()
 
         fun play() = controller.play()

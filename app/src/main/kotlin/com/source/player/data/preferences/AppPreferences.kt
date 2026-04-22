@@ -16,7 +16,8 @@ class AppPreferences @Inject constructor(@ApplicationContext private val ctx: Co
 
   private object Keys {
     val DARK_MODE = booleanPreferencesKey("dark_mode")
-    val ACCENT_COLOR = intPreferencesKey("accent_color")
+    val ACCENT_COLOR = intPreferencesKey("accent_color") // legacy, migrated to ACCENT_HUE
+    val ACCENT_HUE = floatPreferencesKey("accent_hue")
     val GAPLESS = booleanPreferencesKey("gapless")
     val AUDIO_DUCKING = booleanPreferencesKey("audio_ducking")
     val RESTORE_STATE = booleanPreferencesKey("restore_state")
@@ -31,10 +32,21 @@ class AppPreferences @Inject constructor(@ApplicationContext private val ctx: Co
     val QUEUE_INDEX = intPreferencesKey("queue_index")
     val QUEUE_POSITION = longPreferencesKey("queue_position_ms")
     val FONT_FAMILY = stringPreferencesKey("font_family")
+    val SONOS_ACTIVE_ID = stringPreferencesKey("sonos_active_id")
   }
 
   val isDarkMode: Flow<Boolean> = ctx.dataStore.data.map { it[Keys.DARK_MODE] ?: true }
-  val accentColor: Flow<Int> = ctx.dataStore.data.map { it[Keys.ACCENT_COLOR] ?: 0x0D33F2 }
+  /**
+   * Vinyl accent hue in degrees (0..360). On first read after upgrading from
+   * the old `accent_color` RGB-int storage, the hue is extracted from the
+   * stored RGB and persisted, then the legacy key is dropped.
+   */
+  val accentHue: Flow<Float> =
+          ctx.dataStore.data.map { prefs ->
+            prefs[Keys.ACCENT_HUE]
+                    ?: prefs[Keys.ACCENT_COLOR]?.let { rgb -> hueFromRgbInt(rgb) }
+                    ?: DEFAULT_ACCENT_HUE
+          }
   val gapless: Flow<Boolean> = ctx.dataStore.data.map { it[Keys.GAPLESS] ?: false }
   val audioDucking: Flow<Boolean> = ctx.dataStore.data.map { it[Keys.AUDIO_DUCKING] ?: true }
   val restoreState: Flow<Boolean> = ctx.dataStore.data.map { it[Keys.RESTORE_STATE] ?: true }
@@ -51,9 +63,14 @@ class AppPreferences @Inject constructor(@ApplicationContext private val ctx: Co
   val savedQueuePosition: Flow<Long> = ctx.dataStore.data.map { it[Keys.QUEUE_POSITION] ?: 0L }
   val fontFamily: Flow<String> =
           ctx.dataStore.data.map { it[Keys.FONT_FAMILY] ?: "PlusJakartaSans" }
+  val sonosActiveId: Flow<String?> = ctx.dataStore.data.map { it[Keys.SONOS_ACTIVE_ID] }
 
   suspend fun setDarkMode(v: Boolean) = ctx.dataStore.edit { it[Keys.DARK_MODE] = v }
-  suspend fun setAccentColor(v: Int) = ctx.dataStore.edit { it[Keys.ACCENT_COLOR] = v }
+  suspend fun setAccentHue(v: Float) =
+          ctx.dataStore.edit {
+            it[Keys.ACCENT_HUE] = ((v % 360f) + 360f) % 360f
+            it.remove(Keys.ACCENT_COLOR)
+          }
   suspend fun setGapless(v: Boolean) = ctx.dataStore.edit { it[Keys.GAPLESS] = v }
   suspend fun setAudioDucking(v: Boolean) = ctx.dataStore.edit { it[Keys.AUDIO_DUCKING] = v }
   suspend fun setRestoreState(v: Boolean) = ctx.dataStore.edit { it[Keys.RESTORE_STATE] = v }
@@ -69,10 +86,39 @@ class AppPreferences @Inject constructor(@ApplicationContext private val ctx: Co
   suspend fun setRememberLastTab(v: Boolean) = ctx.dataStore.edit { it[Keys.REMEMBER_LAST_TAB] = v }
   suspend fun setLastLibraryTab(v: Int) = ctx.dataStore.edit { it[Keys.LAST_LIBRARY_TAB] = v }
   suspend fun setFontFamily(v: String) = ctx.dataStore.edit { it[Keys.FONT_FAMILY] = v }
+  suspend fun setSonosActiveId(v: String?) =
+          ctx.dataStore.edit {
+            if (v == null) it.remove(Keys.SONOS_ACTIVE_ID) else it[Keys.SONOS_ACTIVE_ID] = v
+          }
   suspend fun saveQueueState(json: String, index: Int, positionMs: Long) =
           ctx.dataStore.edit {
             it[Keys.QUEUE_JSON] = json
             it[Keys.QUEUE_INDEX] = index
             it[Keys.QUEUE_POSITION] = positionMs
           }
+
+  companion object {
+    const val DEFAULT_ACCENT_HUE = 60f // Amber
+  }
+}
+
+/**
+ * Extract the HSL hue (0..360) from a packed RGB int. Used once to migrate the
+ * legacy `accent_color` stored value into the new hue-based setting.
+ */
+private fun hueFromRgbInt(rgb: Int): Float {
+  val r = ((rgb shr 16) and 0xFF) / 255f
+  val g = ((rgb shr 8) and 0xFF) / 255f
+  val b = (rgb and 0xFF) / 255f
+  val max = maxOf(r, g, b)
+  val min = minOf(r, g, b)
+  val delta = max - min
+  if (delta == 0f) return AppPreferences.DEFAULT_ACCENT_HUE
+  val h =
+          when (max) {
+            r -> 60f * (((g - b) / delta) % 6f)
+            g -> 60f * (((b - r) / delta) + 2f)
+            else -> 60f * (((r - g) / delta) + 4f)
+          }
+  return ((h % 360f) + 360f) % 360f
 }

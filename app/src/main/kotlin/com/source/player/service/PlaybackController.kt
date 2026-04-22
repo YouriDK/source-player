@@ -12,6 +12,7 @@ import com.source.player.data.db.entity.SongEntity
 import com.source.player.data.lastfm.LastFmRepository
 import com.source.player.data.preferences.AppPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
@@ -22,6 +23,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * PlaybackController — single source of truth for playback state in the UI.
@@ -67,6 +69,19 @@ constructor(
     _playbackError.value = null
   }
 
+  // ---- Sonos passthroughs for the UI layer ----
+
+  /** Current Sonos volume (0..100) or null when Sonos is not active / not yet queried. */
+  val sonosVolume: StateFlow<Int?> = sonosManager.sonosVolume
+
+  /** Whether a Sonos device is currently active (for showing the Sonos volume slider). */
+  val sonosActive: StateFlow<SonosDevice?> = sonosManager.activeDevice
+
+  fun setSonosVolume(level: Int) {
+    val device = sonosManager.activeDevice.value ?: return
+    scope.launch(Dispatchers.IO) { sonosManager.setVolume(device, level) }
+  }
+
   /** Clean up resources. Called when the application is being destroyed. */
   fun release() {
     positionTickerJob?.cancel()
@@ -82,9 +97,20 @@ constructor(
   private var scrobbleJob: Job? = null // cancelled on track change or pause
   /** Tracks the mediaId of the last track pushed to the active Sonos device. */
   private var lastSonosTrackId: String? = null
+  /** Single-flight guard so one trackEnded event never advances twice. */
+  private val advancing = AtomicBoolean(false)
 
   init {
     connect()
+
+    // Pre-populate UI state flows from the saved queue without waiting for the
+    // MediaController → Service bind. Ensures the Queue screen is populated on
+    // cold start even if the service hasn't connected yet.
+    scope.launch { hydrateSavedQueueIntoUiState() }
+
+    // If a Sonos session was active last time the app ran, try to rebind silently
+    // and mirror whatever the speaker is currently playing back into our state.
+    scope.launch { attemptSonosResume() }
 
     // Auto-advance to next track when Sonos finishes playing
     scope.launch {
@@ -98,6 +124,57 @@ constructor(
           _isPlaying.value = playing
         }
       }
+    }
+
+    // While Sonos is active, poll position/duration so the seekbar moves and the
+    // current-track metadata stays fresh (covers the case where the Sonos advances
+    // via its own controls or another app is controlling it).
+    scope.launch {
+      sonosManager.activeDevice.collectLatest { device ->
+        if (device == null) return@collectLatest
+        while (true) {
+          val info = sonosManager.getPositionInfo(device)
+          if (info != null) {
+            _positionMs.value = info.relTimeMs
+            if (info.durationMs > 0) _durationMs.value = info.durationMs
+          }
+          delay(2_000L)
+        }
+      }
+    }
+  }
+
+  /**
+   * Cold-start hydration: reads the persisted queue (CSV of song ids) from DataStore
+   * and publishes it to [_queueItems] / [_queueIndex] / [_positionMs] / [_currentSong]
+   * so the UI shows it immediately. The queue is pushed to the controller lazily on
+   * the first [play] call.
+   */
+  private suspend fun hydrateSavedQueueIntoUiState() {
+    if (!prefs.restoreState.first()) return
+    if (_queueItems.value.isNotEmpty()) return // controller already populated us
+    val idsCsv = prefs.savedQueueJson.first().orEmpty()
+    if (idsCsv.isBlank()) return
+    val ids = idsCsv.split(",").mapNotNull { it.toLongOrNull() }
+    if (ids.isEmpty()) return
+
+    val songs =
+            withContext(Dispatchers.IO) {
+              val byId = songDao.getByIds(ids).associateBy { it.id }
+              ids.mapNotNull { byId[it] }
+            }
+    if (songs.isEmpty()) return
+
+    val items = songs.map { songEntityToMediaItem(it) }
+    val idx = prefs.savedQueueIndex.first().coerceIn(0, items.lastIndex)
+    val pos = prefs.savedQueuePosition.first()
+
+    // Only publish if nothing else has populated us in the meantime.
+    if (_queueItems.value.isEmpty()) {
+      _queueItems.value = items
+      _queueIndex.value = idx
+      _positionMs.value = pos
+      _currentSong.value = items.getOrNull(idx)
     }
   }
 
@@ -122,6 +199,9 @@ constructor(
   // ---- Public API ----
 
   fun play() {
+    // Lazily push a hydrated (cold-start) queue to the controller if it's still empty.
+    maybePushHydratedQueueToController()
+
     val sonos = sonosManager.activeDevice.value
     if (sonos != null) {
       val currentId = _currentSong.value?.mediaId
@@ -133,8 +213,25 @@ constructor(
         scope.launch(Dispatchers.IO) { sendCurrentToSonos(sonos) }
       }
     } else {
-      controller?.play()
+      controller?.play() ?: run {
+        // Controller not yet bound — ensure the service is up, then try again shortly.
+        context.startForegroundService(
+                android.content.Intent(context, SourcePlaybackService::class.java)
+        )
+        connect()
+      }
     }
+  }
+
+  private fun maybePushHydratedQueueToController() {
+    val c = controller ?: return
+    if (c.mediaItemCount != 0) return
+    val items = _queueItems.value
+    if (items.isEmpty()) return
+    val idx = _queueIndex.value.coerceIn(0, items.lastIndex)
+    val pos = _positionMs.value
+    c.setMediaItems(items, idx, pos)
+    c.prepare()
   }
 
   fun pause() {
@@ -151,38 +248,37 @@ constructor(
   }
 
   fun skipToNext() {
+    val c = controller ?: return
     val sonos = sonosManager.activeDevice.value
     if (sonos != null) {
-      controller?.seekToNextMediaItem() // advance queue pointer (ExoPlayer stays paused)
-      scope.launch(Dispatchers.IO) {
-        delay(100) // let onMediaItemTransition fire first
-        sendCurrentToSonos(sonos)
-      }
+      if (!c.hasNextMediaItem()) return
+      c.seekToNextMediaItem()
+      val next = c.currentMediaItem ?: return
+      scope.launch(Dispatchers.IO) { sendMediaItemToSonos(sonos, next) }
     } else {
-      controller?.seekToNextMediaItem()
+      c.seekToNextMediaItem()
     }
   }
 
   fun skipToPrevious() {
+    val c = controller ?: return
     val sonos = sonosManager.activeDevice.value
     if (sonos != null) {
-      controller?.seekToPreviousMediaItem()
-      scope.launch(Dispatchers.IO) {
-        delay(100)
-        sendCurrentToSonos(sonos)
-      }
+      c.seekToPreviousMediaItem()
+      val prev = c.currentMediaItem ?: return
+      scope.launch(Dispatchers.IO) { sendMediaItemToSonos(sonos, prev) }
     } else {
-      controller?.seekToPreviousMediaItem()
+      c.seekToPreviousMediaItem()
     }
   }
+
   fun skipToQueueItem(index: Int) {
-    controller?.seekTo(index, 0L)
+    val c = controller ?: return
+    c.seekTo(index, 0L)
     val sonos = sonosManager.activeDevice.value
     if (sonos != null) {
-      scope.launch(Dispatchers.IO) {
-        delay(100)
-        sendCurrentToSonos(sonos)
-      }
+      val item = c.currentMediaItem ?: return
+      scope.launch(Dispatchers.IO) { sendMediaItemToSonos(sonos, item) }
     }
   }
 
@@ -205,11 +301,10 @@ constructor(
       prepare()
       val sonos = sonosManager.activeDevice.value
       if (sonos != null) {
-        // Don't play locally — push the selected track to Sonos
-        scope.launch(Dispatchers.IO) {
-          delay(100) // let onMediaItemTransition fire
-          sendCurrentToSonos(sonos)
-        }
+        // Don't play locally — push the selected track to Sonos explicitly,
+        // no reliance on onMediaItemTransition timing.
+        val startItem = items.getOrNull(startIndex) ?: return@apply
+        scope.launch(Dispatchers.IO) { sendMediaItemToSonos(sonos, startItem) }
       } else {
         play()
       }
@@ -316,65 +411,42 @@ constructor(
           }
 
   private fun syncState(player: Player) {
-    _isPlaying.value = player.isPlaying
-    _currentSong.value = player.currentMediaItem
     _repeatMode.value = player.repeatMode
     _shuffleEnabled.value = player.shuffleModeEnabled
-    _durationMs.value = player.duration.takeIf { it > 0 } ?: 0L
-    _positionMs.value = player.currentPosition
-    _queueIndex.value = player.currentMediaItemIndex
-    // Rebuild queue list on reconnect
-    val items = mutableListOf<MediaItem>()
-    for (i in 0 until player.mediaItemCount) {
-      items.add(player.getMediaItemAt(i))
-    }
-    _queueItems.value = items
-    if (player.isPlaying) startPositionTicker()
-
-    // If the player has no queue (cold start), try restoring the saved one.
-    if (player.mediaItemCount == 0) {
-      scope.launch { restoreQueueIfEnabled() }
+    if (player.mediaItemCount > 0) {
+      // Controller has its own queue — mirror it into our flows.
+      _isPlaying.value = player.isPlaying
+      _currentSong.value = player.currentMediaItem
+      _durationMs.value = player.duration.takeIf { it > 0 } ?: 0L
+      _positionMs.value = player.currentPosition
+      _queueIndex.value = player.currentMediaItemIndex
+      val items = mutableListOf<MediaItem>()
+      for (i in 0 until player.mediaItemCount) {
+        items.add(player.getMediaItemAt(i))
+      }
+      _queueItems.value = items
+      if (player.isPlaying) startPositionTicker()
+    } else {
+      // Controller is empty — keep whatever UI state we already hydrated from DataStore,
+      // then push it down to the controller so it becomes the source of truth.
+      scope.launch {
+        hydrateSavedQueueIntoUiState()
+        maybePushHydratedQueueToController()
+      }
     }
   }
 
   // ---- Queue persistence ----
 
   private fun persistState() {
+    // Don't overwrite a valid saved queue with an empty one (fires during teardown
+    // or when the controller briefly reports 0 items between queue swaps).
+    if (_queueItems.value.isEmpty()) return
     val ids = _queueItems.value.mapNotNull { it.mediaId.toLongOrNull() }.joinToString(",")
+    if (ids.isBlank()) return
     val index = controller?.currentMediaItemIndex ?: 0
     val pos = controller?.currentPosition ?: 0L
     scope.launch { prefs.saveQueueState(ids, index, pos) }
-  }
-
-  private suspend fun restoreQueueIfEnabled() {
-    if (!prefs.restoreState.first()) return
-    val idsCsv = prefs.savedQueueJson.first().orEmpty()
-    if (idsCsv.isBlank()) return
-    val ids = idsCsv.split(",").mapNotNull { it.toLongOrNull() }
-    if (ids.isEmpty()) return
-
-    // Resolve IDs → SongEntity in one query, preserving original order; skip missing.
-    val songs =
-            withContext(Dispatchers.IO) {
-              val byId = songDao.getByIds(ids).associateBy { it.id }
-              ids.mapNotNull { byId[it] }
-            }
-    if (songs.isEmpty()) return
-
-    val savedIndex = prefs.savedQueueIndex.first().coerceIn(0, songs.lastIndex)
-    val savedPosition = prefs.savedQueuePosition.first()
-    val items = songs.map { songEntityToMediaItem(it) }
-
-    withContext(Dispatchers.Main) {
-      controller?.apply {
-        // Only restore if still empty (user may have started playback meanwhile).
-        if (mediaItemCount == 0) {
-          setMediaItems(items, savedIndex, savedPosition)
-          prepare()
-          // Silent restore — do NOT call play().
-        }
-      }
-    }
   }
 
   private fun startPositionTicker() {
@@ -420,24 +492,88 @@ constructor(
     // ExoPlayer stays paused — user can press play to resume locally
   }
 
+  /**
+   * On cold start: if the user was streaming to a Sonos when the app was killed,
+   * rediscover + rebind the speaker and pull its current track/state into our
+   * UI flows. Does NOT start new playback.
+   */
+  private suspend fun attemptSonosResume() {
+    val savedId = prefs.sonosActiveId.first() ?: return
+    sonosManager.discover()
+    val device =
+            withTimeoutOrNull(6_000L) {
+              sonosManager.devices.first { list -> list.any { it.id == savedId } }.first {
+                it.id == savedId
+              }
+            }
+                    ?: return
+
+    // Silent rebind — no SetAVTransportURI/Play, just resume monitoring.
+    sonosManager.reactivateWithoutPlay(device)
+
+    val pos = sonosManager.getPositionInfo(device) ?: return
+    val transport = sonosManager.getTransportState(device)
+
+    val song =
+            pos.trackUri?.let { uri ->
+              withContext(Dispatchers.IO) { resolveSongFromSonosUri(uri) }
+            }
+    if (song != null) {
+      val item = songEntityToMediaItem(song)
+      _currentSong.value = item
+      lastSonosTrackId = item.mediaId
+      // Align the queue index with the hydrated queue if possible.
+      val hydrated = _queueItems.value
+      val idx = hydrated.indexOfFirst { it.mediaId == item.mediaId }
+      if (idx >= 0) _queueIndex.value = idx
+    }
+    _positionMs.value = pos.relTimeMs
+    if (pos.durationMs > 0) _durationMs.value = pos.durationMs
+    _isPlaying.value = (transport == "PLAYING")
+  }
+
+  private suspend fun resolveSongFromSonosUri(uri: String): SongEntity? {
+    // Our LocalAudioHttpServer URL is http://{ip}:{port}/{token}/{urlEncodedPath}.
+    // Extract the path after the token and decode it.
+    val path =
+            runCatching {
+              val afterScheme = uri.substringAfter("://", "").ifEmpty { return null }
+              val afterHost = afterScheme.substringAfter("/", "").ifEmpty { return null }
+              val afterToken = afterHost.substringAfter("/", "")
+              if (afterToken.isBlank()) return null
+              val decoded = java.net.URLDecoder.decode(afterToken, "UTF-8")
+              if (decoded.startsWith("/")) decoded else "/$decoded"
+            }
+                    .getOrNull()
+                    ?: return null
+    return songDao.getByPath(path)
+  }
+
   private suspend fun sendCurrentToSonos(device: SonosDevice) {
     val song = _currentSong.value ?: return
-    val uri = song.localConfiguration?.uri?.toString() ?: return
+    sendMediaItemToSonos(device, song)
+  }
+
+  private suspend fun sendMediaItemToSonos(device: SonosDevice, item: MediaItem) {
+    val uri = item.localConfiguration?.uri?.toString() ?: return
     val path = if (uri.startsWith("file://")) uri.removePrefix("file://") else uri
-    val title = song.mediaMetadata.title?.toString() ?: "Unknown Track"
-    lastSonosTrackId = song.mediaId
+    val title = item.mediaMetadata.title?.toString() ?: "Unknown Track"
+    lastSonosTrackId = item.mediaId
     sonosManager.playFile(device, path, title)
   }
 
   private fun advanceSonosQueue() {
-    val device = sonosManager.activeDevice.value ?: return
-    controller?.let { c ->
-      if (c.hasNextMediaItem()) {
+    if (!advancing.compareAndSet(false, true)) return
+    scope.launch {
+      try {
+        val device = sonosManager.activeDevice.value ?: return@launch
+        val c = controller ?: return@launch
+        if (!c.hasNextMediaItem()) return@launch
         c.seekToNextMediaItem()
-        scope.launch(Dispatchers.IO) {
-          delay(150) // let onMediaItemTransition fire
-          sendCurrentToSonos(device)
-        }
+        val next = c.currentMediaItem ?: return@launch
+        withContext(Dispatchers.IO) { sendMediaItemToSonos(device, next) }
+      } finally {
+        advancing.set(false)
       }
     }
   }

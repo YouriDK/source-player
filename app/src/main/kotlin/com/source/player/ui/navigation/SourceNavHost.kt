@@ -1,18 +1,42 @@
 package com.source.player.ui.navigation
 
-import androidx.compose.animation.*
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.navigation.*
-import androidx.navigation.compose.*
+import androidx.compose.ui.unit.dp
+import androidx.navigation.NavController
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import com.source.player.ui.components.Hairline
 import com.source.player.ui.screens.*
+import com.source.player.ui.theme.sourceColors
+import com.source.player.ui.theme.sourceText
 
 // ---- Routes ----
 object Routes {
@@ -41,12 +65,12 @@ data class BottomNavItem(
         val selectedIcon: ImageVector = icon,
 )
 
+// Vinyl spec: 4 bottom tabs. Folders is reachable as a pill inside Library.
 val bottomNavItems =
         listOf(
                 BottomNavItem(Routes.HOME, "Home", Icons.Rounded.Home),
-                BottomNavItem(Routes.LIBRARY, "Library", Icons.Rounded.LibraryMusic),
                 BottomNavItem(Routes.SEARCH, "Search", Icons.Rounded.Search),
-                BottomNavItem(Routes.FOLDERS, "Folders", Icons.Rounded.Folder),
+                BottomNavItem(Routes.LIBRARY, "Library", Icons.Rounded.LibraryMusic),
                 BottomNavItem(Routes.SETTINGS, "Settings", Icons.Rounded.Settings),
         )
 
@@ -133,31 +157,47 @@ fun SourceNavHost() {
 
 @Composable
 private fun SourceBottomNav(navController: NavController, currentRoute: String?) {
-  NavigationBar(
-          containerColor = MaterialTheme.colorScheme.surface,
-          tonalElevation = androidx.compose.ui.unit.Dp.Unspecified,
-  ) {
-    bottomNavItems.forEach { item ->
-      val selected = currentRoute == item.route
-      NavigationBarItem(
-              selected = selected,
-              onClick = {
-                navController.navigate(item.route) {
-                  popUpTo(navController.graph.startDestinationId) { saveState = true }
-                  launchSingleTop = true
-                  restoreState = true
+    val colors = MaterialTheme.sourceColors
+    val text = MaterialTheme.sourceText
+    Column(Modifier.background(colors.bg)) {
+        Hairline()
+        Row(
+                modifier =
+                        Modifier.fillMaxWidth()
+                                .padding(start = 8.dp, end = 8.dp, top = 10.dp, bottom = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            bottomNavItems.forEach { item ->
+                val selected = currentRoute == item.route
+                Column(
+                        modifier =
+                                Modifier.weight(1f)
+                                        .clickable {
+                                            navController.navigate(item.route) {
+                                                popUpTo(navController.graph.startDestinationId) {
+                                                    saveState = true
+                                                }
+                                                launchSingleTop = true
+                                                restoreState = true
+                                            }
+                                        }
+                                        .padding(vertical = 6.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Icon(
+                            imageVector = item.icon,
+                            contentDescription = item.label,
+                            tint = if (selected) colors.accent else colors.textMute,
+                            modifier = Modifier.size(22.dp),
+                    )
+                    Text(
+                            text = item.label,
+                            style = text.pillLabel12,
+                            color = if (selected) colors.accent else colors.textMute,
+                    )
                 }
-              },
-              icon = { Icon(item.icon, contentDescription = item.label) },
-              label = { Text(item.label, style = MaterialTheme.typography.labelSmall) },
-              colors =
-                      NavigationBarItemDefaults.colors(
-                              selectedIconColor = MaterialTheme.colorScheme.primary,
-                              selectedTextColor = MaterialTheme.colorScheme.primary,
-                              unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                              indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                      ),
-      )
+            }
+        }
+        Spacer(Modifier.navigationBarsPadding())
     }
-  }
 }

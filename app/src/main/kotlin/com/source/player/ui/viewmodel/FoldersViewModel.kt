@@ -10,8 +10,10 @@ import com.source.player.service.PlaybackController
 import com.source.player.ui.screens.FolderItem
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @HiltViewModel
 class FoldersViewModel
@@ -43,13 +45,6 @@ constructor(
 
                         val root = current ?: computeRoot(songs)
                         val prefix = "$root/"
-
-                        // Collect ALL unique folder paths under the current root
-                        val allPaths =
-                                songs
-                                        .map { it.folderPath }
-                                        .filter { it.startsWith(prefix) || it == root }
-                                        .toSet()
 
                         // Get immediate child segments
                         val childSegments =
@@ -99,6 +94,7 @@ constructor(
                                 }
                                 .sortedBy { it.name }
                     }
+                    .flowOn(Dispatchers.Default)
                     .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /** Direct songs at exactly the current path level */
@@ -107,6 +103,7 @@ constructor(
                         if (current == null) emptyList()
                         else songs.filter { it.folderPath == current }.sortedBy { it.title }
                     }
+                    .flowOn(Dispatchers.Default)
                     .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /** Total direct-child song count at current level (for header display) */
@@ -119,6 +116,7 @@ constructor(
                                             it.folderPath == current
                                 }
                     }
+                    .flowOn(Dispatchers.Default)
                     .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
     private fun computeRoot(songs: List<SongEntity>): String {
@@ -169,37 +167,46 @@ constructor(
 
     fun playAll() {
         val current = _currentPath.value ?: return
-        val songs =
-                allSongs.value
-                        .filter {
-                            it.folderPath.startsWith("$current/") || it.folderPath == current
-                        }
-                        .sortedBy { it.title }
-        if (songs.isNotEmpty()) {
-            // PlaybackController.setQueueFromEntities runs on Main internally
-            viewModelScope.launch { controller.setQueueFromEntities(songs, 0) }
+        viewModelScope.launch {
+            val songs =
+                    withContext(Dispatchers.Default) {
+                        allSongs.value
+                                .filter {
+                                    it.folderPath.startsWith("$current/") ||
+                                            it.folderPath == current
+                                }
+                                .sortedBy { it.title }
+                    }
+            if (songs.isNotEmpty()) controller.setQueueFromEntities(songs, 0)
         }
     }
 
     fun shuffleAll() {
         val current = _currentPath.value ?: return
-        val songs =
-                allSongs.value
-                        .filter {
-                            it.folderPath.startsWith("$current/") || it.folderPath == current
-                        }
-                        .shuffled()
-        if (songs.isNotEmpty()) {
-            viewModelScope.launch { controller.setQueueFromEntities(songs, 0) }
+        viewModelScope.launch {
+            val songs =
+                    withContext(Dispatchers.Default) {
+                        allSongs.value
+                                .filter {
+                                    it.folderPath.startsWith("$current/") ||
+                                            it.folderPath == current
+                                }
+                                .shuffled()
+                    }
+            if (songs.isNotEmpty()) controller.setQueueFromEntities(songs, 0)
         }
     }
 
     fun playSong(song: SongEntity) {
         val current = _currentPath.value ?: return
-        val queue = allSongs.value.filter { it.folderPath == current }.sortedBy { it.title }
-        val startIndex = queue.indexOf(song).coerceAtLeast(0)
-        // Launch on Main scope — PlaybackController requires Main thread
-        viewModelScope.launch { controller.setQueueFromEntities(queue, startIndex) }
+        viewModelScope.launch {
+            val queue =
+                    withContext(Dispatchers.Default) {
+                        allSongs.value.filter { it.folderPath == current }.sortedBy { it.title }
+                    }
+            val startIndex = queue.indexOf(song).coerceAtLeast(0)
+            controller.setQueueFromEntities(queue, startIndex)
+        }
     }
 
     val playlists =
@@ -212,25 +219,26 @@ constructor(
 
     fun addFolderToPlaylist(playlistId: Long) {
         val current = _currentPath.value ?: return
-        val songs =
-                allSongs.value
-                        .filter {
-                            it.folderPath.startsWith("$current/") || it.folderPath == current
-                        }
-                        .sortedBy { it.title }
-
-        if (songs.isNotEmpty()) {
-            viewModelScope.launch {
-                val currentMax = playlistDao.maxPosition(playlistId) ?: -1
-                songs.forEachIndexed { i, song ->
-                    playlistDao.addSongToPlaylist(
-                            com.source.player.data.db.entity.PlaylistSongEntity(
-                                    playlistId = playlistId,
-                                    songId = song.id,
-                                    position = currentMax + 1 + i
-                            )
-                    )
-                }
+        viewModelScope.launch {
+            val songs =
+                    withContext(Dispatchers.Default) {
+                        allSongs.value
+                                .filter {
+                                    it.folderPath.startsWith("$current/") ||
+                                            it.folderPath == current
+                                }
+                                .sortedBy { it.title }
+                    }
+            if (songs.isEmpty()) return@launch
+            val currentMax = playlistDao.maxPosition(playlistId) ?: -1
+            songs.forEachIndexed { i, song ->
+                playlistDao.addSongToPlaylist(
+                        com.source.player.data.db.entity.PlaylistSongEntity(
+                                playlistId = playlistId,
+                                songId = song.id,
+                                position = currentMax + 1 + i
+                        )
+                )
             }
         }
     }

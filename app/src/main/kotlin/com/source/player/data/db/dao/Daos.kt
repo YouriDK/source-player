@@ -17,6 +17,9 @@ interface SongDao {
   @Query("SELECT * FROM songs WHERE id IN (:ids)")
   suspend fun getByIds(ids: List<Long>): List<SongEntity>
 
+  @Query("SELECT * FROM songs WHERE path = :path LIMIT 1")
+  suspend fun getByPath(path: String): SongEntity?
+
   @Query(
           """
         SELECT * FROM songs
