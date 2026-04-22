@@ -12,6 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Search
@@ -65,12 +66,13 @@ data class BottomNavItem(
         val selectedIcon: ImageVector = icon,
 )
 
-// Vinyl spec: 4 bottom tabs. Folders is reachable as a pill inside Library.
+// 5 bottom tabs — Folders is a first-class destination alongside Home/Search/Library/Settings.
 val bottomNavItems =
         listOf(
                 BottomNavItem(Routes.HOME, "Home", Icons.Rounded.Home),
                 BottomNavItem(Routes.SEARCH, "Search", Icons.Rounded.Search),
                 BottomNavItem(Routes.LIBRARY, "Library", Icons.Rounded.LibraryMusic),
+                BottomNavItem(Routes.FOLDERS, "Folders", Icons.Rounded.Folder),
                 BottomNavItem(Routes.SETTINGS, "Settings", Icons.Rounded.Settings),
         )
 
