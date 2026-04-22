@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
+
 package com.source.player.ui.theme
 
 import androidx.compose.material3.Typography
@@ -7,57 +9,59 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.googlefonts.Font as GoogleDownloadableFont
-import androidx.compose.ui.text.googlefonts.GoogleFont
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.source.player.R
 
-// ─── Google Fonts provider (Downloadable Fonts via Play Services) ─────────
-
-private val GoogleFontsProvider =
-        GoogleFont.Provider(
-                providerAuthority = "com.google.android.gms.fonts",
-                providerPackage = "com.google.android.gms",
-                certificates = R.array.com_google_android_gms_fonts_certs,
-        )
-
-private fun googleFont(
-        name: String,
-        weight: FontWeight = FontWeight.Normal,
-        style: FontStyle = FontStyle.Normal,
-): Font =
-        GoogleDownloadableFont(
-                googleFont = GoogleFont(name),
-                fontProvider = GoogleFontsProvider,
-                weight = weight,
-                style = style,
-        )
-
-// ─── Font families ────────────────────────────────────────────────────────
+// ─── Font families (bundled in res/font/) ─────────────────────────────────
 
 /** Editorial display serif — track titles, section headlines, album names. */
 val InstrumentSerif =
         FontFamily(
-                googleFont("Instrument Serif", FontWeight.Normal, FontStyle.Normal),
-                googleFont("Instrument Serif", FontWeight.Normal, FontStyle.Italic),
+                Font(R.font.instrument_serif_regular, FontWeight.Normal, FontStyle.Normal),
+                Font(R.font.instrument_serif_italic, FontWeight.Normal, FontStyle.Italic),
         )
 
 /** Body / UI sans — labels, buttons, nav, metadata. */
 val Geist =
         FontFamily(
-                googleFont("Geist", FontWeight.Normal),
-                googleFont("Geist", FontWeight.Medium),
-                googleFont("Geist", FontWeight.SemiBold),
-                googleFont("Geist", FontWeight.Bold),
+                Font(
+                        R.font.geist_variable,
+                        FontWeight.Normal,
+                        variationSettings = FontVariation.Settings(FontVariation.weight(400)),
+                ),
+                Font(
+                        R.font.geist_variable,
+                        FontWeight.Medium,
+                        variationSettings = FontVariation.Settings(FontVariation.weight(500)),
+                ),
+                Font(
+                        R.font.geist_variable,
+                        FontWeight.SemiBold,
+                        variationSettings = FontVariation.Settings(FontVariation.weight(600)),
+                ),
+                Font(
+                        R.font.geist_variable,
+                        FontWeight.Bold,
+                        variationSettings = FontVariation.Settings(FontVariation.weight(700)),
+                ),
         )
 
 /** Tabular numerics, kickers, editorial markers. */
 val GeistMono =
         FontFamily(
-                googleFont("Geist Mono", FontWeight.Normal),
-                googleFont("Geist Mono", FontWeight.Medium),
+                Font(
+                        R.font.geist_mono_variable,
+                        FontWeight.Normal,
+                        variationSettings = FontVariation.Settings(FontVariation.weight(400)),
+                ),
+                Font(
+                        R.font.geist_mono_variable,
+                        FontWeight.Medium,
+                        variationSettings = FontVariation.Settings(FontVariation.weight(500)),
+                ),
         )
 
 // ─── Vinyl named type scale ────────────────────────────────────────────────
