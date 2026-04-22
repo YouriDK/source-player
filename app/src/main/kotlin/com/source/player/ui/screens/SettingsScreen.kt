@@ -1,9 +1,13 @@
 package com.source.player.ui.screens
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
@@ -11,6 +15,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -19,21 +24,23 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.source.player.service.AudioOutputDevice
 import com.source.player.service.DeviceCategory
+import com.source.player.ui.theme.accentForHue
 import com.source.player.ui.viewmodel.AudioOutputViewModel
 import com.source.player.ui.viewmodel.LastFmLoginState
 import com.source.player.ui.viewmodel.SettingsViewModel
 
-// Preset accent colors from Stitch theme palette
-private val presetAccentColors =
+/** Vinyl hue presets: Amber / Rust / Terracotta / Moss / Slate Blue / Plum / Rose. */
+private data class HuePreset(val label: String, val hue: Float)
+
+private val VinylHuePresets =
         listOf(
-                0x0D33F2,
-                0xE91E63,
-                0xFF5722,
-                0xFF9800,
-                0x4CAF50,
-                0x00BCD4,
-                0x9C27B0,
-                0xFFFFFF,
+                HuePreset("Amber", 60f),
+                HuePreset("Rust", 30f),
+                HuePreset("Terracotta", 15f),
+                HuePreset("Moss", 140f),
+                HuePreset("Slate Blue", 220f),
+                HuePreset("Plum", 290f),
+                HuePreset("Rose", 350f),
         )
 
 @Composable
@@ -49,7 +56,7 @@ fun SettingsScreen(
   val scrobble by vm.scrobbling.collectAsState()
   val artPolicy by vm.artDownloadPolicy.collectAsState()
   val rememberTab by vm.rememberLastTab.collectAsState()
-  val accentColor by vm.accentColor.collectAsState()
+  val accentHue by vm.accentHue.collectAsState()
   val lastFmUser by vm.lastFmUser.collectAsState()
   val loginState by vm.loginState.collectAsState()
   val scanProgress by vm.scanProgress.collectAsState()
@@ -78,7 +85,10 @@ fun SettingsScreen(
       SettingsItem(
               "Accent Color",
               Icons.Rounded.Palette,
-              subtitle = "#${accentColor.toString(16).uppercase()}"
+              subtitle =
+                      VinylHuePresets.firstOrNull { kotlin.math.abs(it.hue - accentHue) < 0.5f }
+                              ?.label
+                              ?: "Custom hue ${accentHue.toInt()}\u00B0",
       ) { showColorPicker = true }
     }
 
@@ -126,13 +136,9 @@ fun SettingsScreen(
   }
 
   if (showColorPicker) {
-    ColorPickerSheet(
-            currentColor = accentColor,
-            presets = presetAccentColors,
-            onColorSelected = {
-              vm.setAccentColor(it)
-              showColorPicker = false
-            },
+    AccentHueSheet(
+            currentHue = accentHue,
+            onHueChanged = { vm.setAccentHue(it) },
             onDismiss = { showColorPicker = false },
     )
   }
@@ -229,14 +235,13 @@ fun SettingsItem(title: String, icon: ImageVector, subtitle: String? = null, onC
   )
 }
 
-// ---- Color Picker Bottom Sheet ----
+// ---- Accent Hue Bottom Sheet (Vinyl) ----
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ColorPickerSheet(
-        currentColor: Int,
-        presets: List<Int>,
-        onColorSelected: (Int) -> Unit,
+fun AccentHueSheet(
+        currentHue: Float,
+        onHueChanged: (Float) -> Unit,
         onDismiss: () -> Unit,
 ) {
   val sheetState = rememberModalBottomSheetState()
@@ -245,36 +250,70 @@ fun ColorPickerSheet(
           sheetState = sheetState,
           containerColor = MaterialTheme.colorScheme.surfaceVariant,
   ) {
-    Column(Modifier.navigationBarsPadding().padding(24.dp)) {
-      Text("Accent Color", style = MaterialTheme.typography.titleLarge)
+    Column(Modifier.navigationBarsPadding().padding(horizontal = 24.dp, vertical = 8.dp)) {
+      Text("Accent", style = MaterialTheme.typography.displayMedium)
+      Spacer(Modifier.height(6.dp))
+      Text(
+              "Hue rotates — chroma and lightness are fixed.",
+              style = MaterialTheme.typography.bodyMedium,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
       Spacer(Modifier.height(20.dp))
-      androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-              columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(4),
-              horizontalArrangement = Arrangement.spacedBy(12.dp),
-              verticalArrangement = Arrangement.spacedBy(12.dp),
-              modifier = Modifier.wrapContentHeight(),
-      ) {
-        items(presets.size) { i ->
-          val color = presets[i]
-          val selected = color == currentColor
-          Surface(
-                  onClick = { onColorSelected(color) },
-                  shape = MaterialTheme.shapes.large,
-                  color = Color(0xFF000000.or(color.toLong())),
-                  modifier = Modifier.size(64.dp),
-                  border =
-                          if (selected) BorderStroke(3.dp, MaterialTheme.colorScheme.onSurface)
-                          else null,
+
+      // Preset row
+      Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        VinylHuePresets.forEach { preset ->
+          val selected = kotlin.math.abs(preset.hue - currentHue) < 0.5f
+          Box(
+                  modifier =
+                          Modifier.size(40.dp)
+                                  .clip(CircleShape)
+                                  .background(accentForHue(preset.hue))
+                                  .clickable { onHueChanged(preset.hue) }
+                                  .then(
+                                          if (selected)
+                                                  Modifier.border(
+                                                          BorderStroke(
+                                                                  2.dp,
+                                                                  MaterialTheme.colorScheme
+                                                                          .onSurface,
+                                                          ),
+                                                          CircleShape,
+                                                  )
+                                          else Modifier
+                                  ),
+                  contentAlignment = Alignment.Center,
           ) {
             if (selected) {
-              Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                Icon(Icons.Rounded.Check, "Selected", tint = Color.White)
-              }
+              Icon(
+                      Icons.Rounded.Check,
+                      null,
+                      tint = Color.White,
+                      modifier = Modifier.size(18.dp),
+              )
             }
           }
         }
       }
-      Spacer(Modifier.height(16.dp))
+      Spacer(Modifier.height(20.dp))
+
+      // Free hue slider
+      Text(
+              "Custom — ${currentHue.toInt()}\u00B0",
+              style = MaterialTheme.typography.labelLarge,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+      Slider(
+              value = currentHue,
+              onValueChange = onHueChanged,
+              valueRange = 0f..360f,
+              colors =
+                      SliderDefaults.colors(
+                              thumbColor = accentForHue(currentHue),
+                              activeTrackColor = accentForHue(currentHue),
+                      ),
+      )
+      Spacer(Modifier.height(12.dp))
     }
   }
 }

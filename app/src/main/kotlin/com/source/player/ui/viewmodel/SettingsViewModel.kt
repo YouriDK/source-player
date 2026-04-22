@@ -32,8 +32,12 @@ constructor(
 ) : ViewModel() {
 
         val isDarkMode = prefs.isDarkMode.stateIn(viewModelScope, SharingStarted.Eagerly, true)
-        val accentColor =
-                prefs.accentColor.stateIn(viewModelScope, SharingStarted.Eagerly, 0x0D33F2)
+        val accentHue =
+                prefs.accentHue.stateIn(
+                        viewModelScope,
+                        SharingStarted.Eagerly,
+                        AppPreferences.DEFAULT_ACCENT_HUE,
+                )
         val gapless = prefs.gapless.stateIn(viewModelScope, SharingStarted.Eagerly, false)
         val audioDucking = prefs.audioDucking.stateIn(viewModelScope, SharingStarted.Eagerly, true)
         val restoreState = prefs.restoreState.stateIn(viewModelScope, SharingStarted.Eagerly, true)
@@ -56,7 +60,7 @@ constructor(
         val loginState = _loginState.asStateFlow()
 
         fun setDarkMode(v: Boolean) = viewModelScope.launch { prefs.setDarkMode(v) }
-        fun setAccentColor(v: Int) = viewModelScope.launch { prefs.setAccentColor(v) }
+        fun setAccentHue(v: Float) = viewModelScope.launch { prefs.setAccentHue(v) }
         fun setGapless(v: Boolean) = viewModelScope.launch { prefs.setGapless(v) }
         fun setAudioDucking(v: Boolean) = viewModelScope.launch { prefs.setAudioDucking(v) }
         fun setRestoreState(v: Boolean) = viewModelScope.launch { prefs.setRestoreState(v) }

@@ -9,13 +9,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.graphics.Color
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.source.player.ui.navigation.SourceNavHost
-import com.source.player.ui.theme.AppFont
 import com.source.player.ui.theme.SourceTheme
-import com.source.player.ui.theme.toFontFamily
 import com.source.player.ui.viewmodel.SettingsViewModel
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -63,15 +60,8 @@ class MainActivity : ComponentActivity() {
     setContent {
       val settingsVm: SettingsViewModel = hiltViewModel()
       val isDark by settingsVm.isDarkMode.collectAsState()
-      val accentInt by settingsVm.accentColor.collectAsState()
-      val fontFamilyName by settingsVm.fontFamily.collectAsState()
-      val appFont =
-              AppFont.entries.firstOrNull { it.name == fontFamilyName } ?: AppFont.PlusJakartaSans
-      SourceTheme(
-              darkTheme = isDark,
-              accentColor = Color(0xFF000000.or(accentInt.toLong())),
-              fontFamily = appFont.toFontFamily(),
-      ) { SourceNavHost() }
+      val accentHue by settingsVm.accentHue.collectAsState()
+      SourceTheme(darkTheme = isDark, accentHue = accentHue) { SourceNavHost() }
     }
   }
 }

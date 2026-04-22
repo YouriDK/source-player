@@ -214,10 +214,17 @@ constructor(
     // ---- Internal ----
 
     private fun refreshDevices() {
-        val localDevices = buildLocalDevices()
-        val remoteRoutes = buildRemoteRoutes()
+        val sonosActive = sonosManager.activeDevice.value != null
+        val localDevices = buildLocalDevices(forceInactive = sonosActive)
+        val remoteRoutes = buildRemoteRoutes(forceInactive = sonosActive)
         val sonosDevices = buildSonosDevices()
-        val all = (localDevices + remoteRoutes + sonosDevices).sortedBy { it.type.ordinal }
+        val all =
+                (sonosDevices + localDevices + remoteRoutes)
+                        .distinctBy { d ->
+                            d.routeId?.takeIf { it.startsWith("sonos:") }
+                                    ?: (d.name.lowercase().trim() + ":" + d.type.name)
+                        }
+                        .sortedBy { it.type.ordinal }
 
         _availableDevices.value = all
         _activeDevice.value =
@@ -240,11 +247,12 @@ constructor(
         }
     }
 
-    private fun buildLocalDevices(): List<AudioOutputDevice> {
+    private fun buildLocalDevices(forceInactive: Boolean = false): List<AudioOutputDevice> {
         val outputs = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
 
         val activeId =
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (forceInactive) null
+                else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     audioManager.communicationDevice?.id ?: userSelectedDeviceId
                 } else {
                     userSelectedDeviceId
@@ -258,14 +266,14 @@ constructor(
                             name = friendlyName(info),
                             type = categorize(info.type),
                             rawType = info.type,
-                            isActive = info.id == activeId,
+                            isActive = activeId != null && info.id == activeId,
                             routeId = null,
                     )
                 }
     }
 
-    private fun buildRemoteRoutes(): List<AudioOutputDevice> {
-        val selectedRoute = mediaRouter.selectedRoute
+    private fun buildRemoteRoutes(forceInactive: Boolean = false): List<AudioOutputDevice> {
+        val selectedRouteId = if (forceInactive) null else mediaRouter.selectedRoute.id
         // Use a large offset to avoid ID collisions with local hardware device IDs
         val idOffset = 100_000
 
@@ -281,7 +289,7 @@ constructor(
                             name = route.name,
                             type = remoteRouteCategory(route),
                             rawType = -1,
-                            isActive = route.id == selectedRoute.id,
+                            isActive = selectedRouteId != null && route.id == selectedRouteId,
                             routeId = route.id,
                     )
                 }

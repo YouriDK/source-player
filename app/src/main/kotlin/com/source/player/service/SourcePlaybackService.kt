@@ -17,6 +17,9 @@ import com.google.android.gms.cast.framework.CastContext
 import com.source.player.MainActivity
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 /**
  * SourcePlaybackService — owns both [ExoPlayer] (local) and [CastPlayer] (Chromecast).
@@ -32,10 +35,16 @@ import javax.inject.Inject
 class SourcePlaybackService : MediaSessionService() {
 
     @Inject lateinit var localAudioHttpServer: LocalAudioHttpServer
+    @Inject lateinit var sonosManager: SonosManager
+
+    private val volumeScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private var mediaSession: MediaSession? = null
     private var localPlayer: ExoPlayer? = null
     private var castPlayer: CastPlayer? = null
+    /** Sonos-aware wrappers — reused so identity checks in transferTo still hold. */
+    private var localWrapped: SonosAwarePlayer? = null
+    private var castWrapped: SonosAwarePlayer? = null
 
     // Source-of-truth queue with original file:// URIs (never HTTP-converted)
     private var originalQueue: List<MediaItem> = emptyList()
@@ -64,11 +73,11 @@ class SourcePlaybackService : MediaSessionService() {
                         setSessionAvailabilityListener(
                                 object : SessionAvailabilityListener {
                                     override fun onCastSessionAvailable() {
-                                        transferTo(castPlayer!!)
+                                        transferTo(castWrapped ?: return)
                                     }
 
                                     override fun onCastSessionUnavailable() {
-                                        transferTo(localPlayer!!)
+                                        transferTo(localWrapped ?: return)
                                     }
                                 }
                         )
@@ -77,8 +86,12 @@ class SourcePlaybackService : MediaSessionService() {
             // Play Services not available — cast is simply disabled
         }
 
+        // Wrap so MediaSession volume calls route to Sonos when active.
+        localWrapped = SonosAwarePlayer(localPlayer!!, sonosManager, volumeScope)
+        castWrapped = castPlayer?.let { SonosAwarePlayer(it, sonosManager, volumeScope) }
+
         val initialPlayer: Player =
-                if (castPlayer?.isCastSessionAvailable == true) castPlayer!! else localPlayer!!
+                if (castPlayer?.isCastSessionAvailable == true) castWrapped!! else localWrapped!!
 
         val sessionActivityIntent =
                 PendingIntent.getActivity(
@@ -114,7 +127,7 @@ class SourcePlaybackService : MediaSessionService() {
         current.stop()
 
         val items =
-                if (target === castPlayer) {
+                if (target === castWrapped) {
                     // Chromecast needs HTTP URLs — start server and convert
                     localAudioHttpServer.start()
                     originalQueue.map { item ->
@@ -156,6 +169,7 @@ class SourcePlaybackService : MediaSessionService() {
         castPlayer?.release()
         localAudioHttpServer.stop()
         mediaSession = null
+        volumeScope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
         super.onDestroy()
     }
 }

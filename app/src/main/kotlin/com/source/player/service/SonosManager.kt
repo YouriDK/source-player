@@ -2,7 +2,9 @@ package com.source.player.service
 
 import android.content.Context
 import android.net.wifi.WifiManager
+import android.os.SystemClock
 import android.util.Log
+import com.source.player.data.preferences.AppPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.ktor.client.*
 import io.ktor.client.engine.android.*
@@ -51,6 +53,7 @@ class SonosManager
 constructor(
         @ApplicationContext private val context: Context,
         private val localAudioHttpServer: LocalAudioHttpServer,
+        private val prefs: AppPreferences,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -72,8 +75,13 @@ constructor(
     private val _sonosPlaying = MutableStateFlow(false)
     val sonosPlaying: StateFlow<Boolean> = _sonosPlaying.asStateFlow()
 
+    /** Current Sonos volume 0..100, or null when unknown / no device active. */
+    private val _sonosVolume = MutableStateFlow<Int?>(null)
+    val sonosVolume: StateFlow<Int?> = _sonosVolume.asStateFlow()
+
     private var monitorJob: Job? = null
-    private var skipNextStopEvent = false
+    /** Monotonic deadline (elapsedRealtime ms); STOPPED events before this are ignored. */
+    @Volatile private var suppressStopUntilMs: Long = 0L
 
     /** Triggers an SSDP scan. Safe to call multiple times. */
     fun discover() {
@@ -199,7 +207,9 @@ constructor(
      * Tells the Sonos speaker to stream a local file via our local HTTP server and start playing.
      */
     suspend fun playFile(device: SonosDevice, filePath: String, trackTitle: String) {
-        skipNextStopEvent = true
+        // Suppress spurious STOPPED events during the SetAVTransportURI → Play transition
+        // window. 8s covers network latency + Sonos' own buffering time.
+        suppressStopUntilMs = SystemClock.elapsedRealtime() + 8_000L
         localAudioHttpServer.start()
         val httpUrl = localAudioHttpServer.getUrl(filePath) ?: return
         val mimeType = mimeTypeFor(filePath)
@@ -223,10 +233,41 @@ constructor(
         sendSoap(device, "Stop", "<InstanceID>0</InstanceID>")
     }
 
+    // ---- UPnP RenderingControl (volume/mute) ----
+
+    suspend fun getVolume(device: SonosDevice): Int? = runCatching {
+        val xml = sendRenderingSoap(device, "GetVolume",
+            "<InstanceID>0</InstanceID><Channel>Master</Channel>")
+        Regex("<CurrentVolume>(\\d+)</CurrentVolume>")
+            .find(xml)?.groupValues?.get(1)?.toIntOrNull()
+    }.getOrNull()
+
+    suspend fun setVolume(device: SonosDevice, level: Int) {
+        val clamped = level.coerceIn(0, 100)
+        runCatching {
+            sendRenderingSoap(device, "SetVolume",
+                "<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>$clamped</DesiredVolume>")
+            _sonosVolume.value = clamped
+        }
+    }
+
+    suspend fun adjustVolume(device: SonosDevice, delta: Int) {
+        val current = _sonosVolume.value ?: getVolume(device) ?: return
+        setVolume(device, current + delta)
+    }
+
+    suspend fun setMute(device: SonosDevice, muted: Boolean) {
+        runCatching {
+            sendRenderingSoap(device, "SetMute",
+                "<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredMute>${if (muted) 1 else 0}</DesiredMute>")
+        }
+    }
+
     /** Mark a Sonos device as the active playback target and start monitoring it. */
     fun activate(device: SonosDevice) {
         _activeDevice.value = device
         _sonosPlaying.value = false
+        scope.launch { prefs.setSonosActiveId(device.id) }
         startMonitoring(device)
     }
 
@@ -239,6 +280,18 @@ constructor(
         }
         _activeDevice.value = null
         _sonosPlaying.value = false
+        _sonosVolume.value = null
+        scope.launch { prefs.setSonosActiveId(null) }
+    }
+
+    /**
+     * Silently re-bind to a previously active Sonos device without pushing a new
+     * track. Used on app relaunch when the speaker is still playing from a
+     * previous session.
+     */
+    fun reactivateWithoutPlay(device: SonosDevice) {
+        _activeDevice.value = device
+        startMonitoring(device)
     }
 
     /**
@@ -257,6 +310,38 @@ constructor(
         }
     }
 
+    data class SonosPositionInfo(
+        val trackUri: String?,
+        val relTimeMs: Long,
+        val durationMs: Long,
+    )
+
+    /**
+     * Queries the current track URI, elapsed time, and duration from AVTransport.
+     * Returns null on network/SOAP failure.
+     */
+    suspend fun getPositionInfo(device: SonosDevice): SonosPositionInfo? {
+        val xml = runCatching {
+            sendSoapWithResponse(device, "GetPositionInfo", "<InstanceID>0</InstanceID>")
+        }.getOrNull() ?: return null
+        fun pick(tag: String) = Regex("<$tag>(.*?)</$tag>").find(xml)?.groupValues?.get(1)
+        return SonosPositionInfo(
+            trackUri = pick("TrackURI")?.takeIf { it.isNotBlank() },
+            relTimeMs = pick("RelTime")?.let { parseHmsToMs(it) } ?: 0L,
+            durationMs = pick("TrackDuration")?.let { parseHmsToMs(it) } ?: 0L,
+        )
+    }
+
+    private fun parseHmsToMs(hms: String): Long {
+        val parts = hms.split(":").mapNotNull { it.toIntOrNull() }
+        return when (parts.size) {
+            3 -> (parts[0] * 3600L + parts[1] * 60L + parts[2]) * 1000L
+            2 -> (parts[0] * 60L + parts[1]) * 1000L
+            1 -> parts[0] * 1000L
+            else -> 0L
+        }
+    }
+
     /**
      * Polls the Sonos device every 2 seconds to detect when a track finishes naturally.
      * Emits to [trackEnded] when playback transitions from PLAYING to STOPPED.
@@ -265,26 +350,49 @@ constructor(
         monitorJob?.cancel()
         monitorJob = scope.launch {
             var wasPlaying = false
+            var stoppedStreak = 0
+            // Prime the volume so the UI has something to show on first frame.
+            _sonosVolume.value = getVolume(device)
+            var volumePollTick = 0
             while (true) {
                 delay(2_000)
                 val state = getTransportState(device)
+                // Refresh volume every ~6s (external changes from Sonos app/other).
+                if (volumePollTick++ % 3 == 0) {
+                    getVolume(device)?.let { _sonosVolume.value = it }
+                }
                 when (state) {
                     "PLAYING" -> {
+                        stoppedStreak = 0
                         wasPlaying = true
                         _sonosPlaying.value = true
                     }
                     "PAUSED_PLAYBACK" -> {
+                        stoppedStreak = 0
                         _sonosPlaying.value = false
+                    }
+                    "TRANSITIONING" -> {
+                        // Between tracks — leave wasPlaying alone so we don't lose the
+                        // "track ended naturally" signal on the next STOPPED poll.
                     }
                     "STOPPED", "NO_MEDIA_PRESENT" -> {
                         _sonosPlaying.value = false
                         if (wasPlaying) {
-                            if (skipNextStopEvent) {
-                                skipNextStopEvent = false
+                            val now = SystemClock.elapsedRealtime()
+                            if (now < suppressStopUntilMs) {
+                                // In-flight playFile transition — ignore.
+                                stoppedStreak = 0
                             } else {
-                                _trackEnded.tryEmit(Unit)
+                                stoppedStreak++
+                                // Require two consecutive STOPPED polls before declaring
+                                // end-of-track to avoid single-poll glitches during
+                                // Sonos' own buffering.
+                                if (stoppedStreak >= 2) {
+                                    _trackEnded.tryEmit(Unit)
+                                    wasPlaying = false
+                                    stoppedStreak = 0
+                                }
                             }
-                            wasPlaying = false
                         }
                     }
                 }
@@ -298,29 +406,47 @@ constructor(
 
     private suspend fun sendSoapWithResponse(
         device: SonosDevice, action: String, bodyContent: String
+    ): String = sendUpnpSoap(device, SVC_AV_TRANSPORT, action, bodyContent)
+
+    private suspend fun sendRenderingSoap(
+        device: SonosDevice, action: String, bodyContent: String
+    ): String = sendUpnpSoap(device, SVC_RENDERING_CONTROL, action, bodyContent)
+
+    private suspend fun sendUpnpSoap(
+        device: SonosDevice,
+        service: UpnpService,
+        action: String,
+        bodyContent: String,
     ): String {
         val soap = """<?xml version="1.0" encoding="utf-8"?>
 <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
             s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
   <s:Body>
-    <u:$action xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+    <u:$action xmlns:u="${service.namespace}">
       $bodyContent
     </u:$action>
   </s:Body>
 </s:Envelope>""".trimIndent()
 
         val response = http.post(
-            "http://${device.ip}:${device.port}/MediaRenderer/AVTransport/Control"
+            "http://${device.ip}:${device.port}${service.controlPath}"
         ) {
             headers {
-                append("SOAPACTION",
-                    "\"urn:schemas-upnp-org:service:AVTransport:1#$action\"")
+                append("SOAPACTION", "\"${service.namespace}#$action\"")
                 append("Content-Type", "text/xml; charset=\"utf-8\"")
             }
             setBody(soap)
         }
         return response.bodyAsText()
     }
+
+    private data class UpnpService(val controlPath: String, val namespace: String)
+    private val SVC_AV_TRANSPORT =
+        UpnpService("/MediaRenderer/AVTransport/Control",
+            "urn:schemas-upnp-org:service:AVTransport:1")
+    private val SVC_RENDERING_CONTROL =
+        UpnpService("/MediaRenderer/RenderingControl/Control",
+            "urn:schemas-upnp-org:service:RenderingControl:1")
 
     private fun buildDidl(title: String, uri: String, mimeType: String): String =
             """<DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/"
