@@ -1,7 +1,12 @@
 package com.source.player.ui.screens
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -11,9 +16,14 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
@@ -25,16 +35,28 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import com.source.player.data.db.entity.*
-import com.source.player.ui.components.EditorialDivider
 import com.source.player.ui.components.Hairline
 import com.source.player.ui.components.MonoSize
 import com.source.player.ui.components.MonoText
@@ -44,24 +66,35 @@ import com.source.player.ui.components.VerticalHairline
 import com.source.player.ui.navigation.Routes
 import com.source.player.ui.theme.sourceColors
 import com.source.player.ui.theme.sourceText
+import com.source.player.ui.viewmodel.LibraryTab
 import com.source.player.ui.viewmodel.LibraryViewModel
+import com.source.player.ui.viewmodel.PlayerViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
-private enum class LibraryTab { Songs, Albums, Artists, Playlists, Genres }
 
 @Composable
 fun LibraryScreen(
         navController: NavController,
         vm: LibraryViewModel = hiltViewModel(),
+        playerVm: PlayerViewModel = hiltViewModel(),
 ) {
-    val songs by vm.songs.collectAsState()
-    val albums by vm.albums.collectAsState()
-    val artists by vm.artists.collectAsState()
-    val playlists by vm.playlists.collectAsState()
-    val genres by vm.genres.collectAsState()
+    val filteredSongs by vm.filteredSongs.collectAsState()
+    val filteredAlbums by vm.filteredAlbums.collectAsState()
+    val filteredArtists by vm.filteredArtists.collectAsState()
+    val filteredPlaylists by vm.filteredPlaylists.collectAsState()
+    val filteredGenres by vm.filteredGenres.collectAsState()
+    val totalArtists by vm.artists.collectAsState()
 
-    var selectedTab by remember { mutableStateOf(LibraryTab.Artists) }
+    val query by vm.query.collectAsState()
+    val selectedTab by vm.activeTab.collectAsState()
+    val nowPlaying by playerVm.currentSong.collectAsState()
+    // Mini player sits above the tab bar when a track is playing — the
+    // floating search bar must stack above it, never be occluded.
+    // Matches the "Library / w/ mini player" artboard and README §Screens/2.4.
+    val miniPlayerVisible = nowPlaying != null
+
     var selectedSong by remember { mutableStateOf<SongEntity?>(null) }
+    var flashLetter by remember { mutableStateOf<Char?>(null) }
 
     selectedSong?.let { song ->
         SongOptionsSheet(
@@ -74,74 +107,188 @@ fun LibraryScreen(
     val colors = MaterialTheme.sourceColors
     val text = MaterialTheme.sourceText
 
-    Column(Modifier.fillMaxSize().systemBarsPadding().background(colors.bg)) {
-        // Header --------------------------------------------------------
-        Row(
-                modifier =
-                        Modifier.fillMaxWidth()
-                                .padding(start = 24.dp, end = 24.dp, top = 14.dp, bottom = 8.dp),
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(text = "Library", style = text.editorialHeadline32, color = colors.text)
-            MonoText(text = "A-Z", color = colors.textMute, size = MonoSize.S10)
-        }
+    val typing = query.isNotEmpty()
+    val chromeAlpha by
+            animateFloatAsState(
+                    targetValue = if (typing) 0.35f else 1f,
+                    animationSpec = tween(250),
+                    label = "libraryChromeAlpha",
+            )
+    val railAlpha by
+            animateFloatAsState(
+                    targetValue = if (typing) 0f else 1f,
+                    animationSpec = tween(250),
+                    label = "libraryRailAlpha",
+            )
 
-        // Tabs ----------------------------------------------------------
-        Row(
-                modifier =
-                        Modifier.fillMaxWidth()
-                                .horizontalScroll(rememberScrollState())
-                                .padding(horizontal = 24.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            LibraryTab.entries.forEach { tab ->
-                PillTab(
-                        label = tab.name,
-                        selected = tab == selectedTab,
-                        onClick = { selectedTab = tab },
+    Box(Modifier.fillMaxSize().systemBarsPadding().background(colors.bg)) {
+        Column(Modifier.fillMaxSize()) {
+            // Header --------------------------------------------------
+            Row(
+                    modifier =
+                            Modifier.fillMaxWidth()
+                                    .padding(start = 24.dp, end = 24.dp, top = 14.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(text = "Library", style = text.editorialHeadline32, color = colors.text)
+                val counter =
+                        if (typing)
+                                "${visibleCount(selectedTab, filteredSongs, filteredAlbums, filteredArtists, filteredPlaylists, filteredGenres)} / ${totalArtists.size.coerceAtLeast(currentTotal(selectedTab, vm))}"
+                        else "A–Z"
+                MonoText(
+                        text = counter,
+                        color = colors.textMute,
+                        size = MonoSize.S10,
+                        modifier = Modifier.alpha(if (typing) 1f else 1f),
                 )
             }
-        }
-        Hairline()
 
-        // Body ----------------------------------------------------------
-        when (selectedTab) {
-            LibraryTab.Songs ->
-                    VinylSongsList(
-                            songs = songs,
-                            onPlayAll = { vm.playAllSongs() },
-                            onShuffleAll = { vm.shuffleAllSongs() },
-                            onSongClick = { idx -> vm.playSongsFromIndex(songs, idx) },
-                            onMore = { selectedSong = it },
+            // Tabs ----------------------------------------------------
+            Row(
+                    modifier =
+                            Modifier.fillMaxWidth()
+                                    .alpha(chromeAlpha)
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(horizontal = 24.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                LibraryTab.entries.forEach { tab ->
+                    PillTab(
+                            label = tab.name,
+                            selected = tab == selectedTab,
+                            onClick = { if (!typing) vm.onTabChange(tab) },
                     )
-            LibraryTab.Albums ->
-                    VinylAlbumsGrid(
-                            albums = albums,
-                            onClick = { navController.navigate(Routes.albumDetail(it.id)) },
-                    )
-            LibraryTab.Artists ->
-                    VinylArtistsList(
-                            artists = artists,
-                            onClick = { navController.navigate(Routes.artistDetail(it.id)) },
-                    )
-            LibraryTab.Playlists ->
-                    VinylPlaylistsList(
-                            playlists = playlists,
-                            onCreate = { vm.createPlaylist(it) },
-                            onClick = {
-                                navController.navigate(Routes.playlistDetail(it.id))
-                            },
-                    )
-            LibraryTab.Genres -> VinylGenresList(genres)
+                }
+            }
+            Hairline(modifier = Modifier.alpha(chromeAlpha))
+
+            // Body ----------------------------------------------------
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                when (selectedTab) {
+                    LibraryTab.Songs ->
+                            VinylSongsList(
+                                    songs = filteredSongs,
+                                    query = query,
+                                    onPlayAll = { vm.playAllSongs() },
+                                    onShuffleAll = { vm.shuffleAllSongs() },
+                                    onSongClick = { idx ->
+                                        vm.playSongsFromIndex(filteredSongs, idx)
+                                    },
+                                    onMore = { selectedSong = it },
+                            )
+                    LibraryTab.Albums ->
+                            VinylAlbumsGrid(
+                                    albums = filteredAlbums,
+                                    query = query,
+                                    onClick = {
+                                        navController.navigate(Routes.albumDetail(it.id))
+                                    },
+                            )
+                    LibraryTab.Artists ->
+                            VinylArtistsList(
+                                    artists = filteredArtists,
+                                    query = query,
+                                    railAlpha = railAlpha,
+                                    flashLetter = flashLetter,
+                                    onJump = { c -> flashLetter = c },
+                                    onClick = {
+                                        navController.navigate(Routes.artistDetail(it.id))
+                                    },
+                            )
+                    LibraryTab.Playlists ->
+                            VinylPlaylistsList(
+                                    playlists = filteredPlaylists,
+                                    query = query,
+                                    onCreate = { vm.createPlaylist(it) },
+                                    onClick = {
+                                        navController.navigate(Routes.playlistDetail(it.id))
+                                    },
+                            )
+                    LibraryTab.Genres ->
+                            VinylGenresList(genres = filteredGenres, query = query)
+                }
+            }
+        }
+
+        // Floating search bar — overlays, pinned above the system nav bar.
+        // When the mini player is visible it stacks directly on top of the tab
+        // bar, so the search bar must clear it (+66dp). Matches the design's
+        // bottom-stack order: tab bar → mini player → search bar.
+        FloatingSearchBar(
+                query = query,
+                placeholder = placeholderFor(selectedTab),
+                onChange = vm::onQueryChange,
+                onClear = { vm.onQueryChange("") },
+                modifier =
+                        Modifier.align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .padding(
+                                        start = 12.dp,
+                                        end = 12.dp,
+                                        top = 12.dp,
+                                        bottom = if (miniPlayerVisible) 78.dp else 12.dp,
+                                )
+                                .imePadding(),
+        )
+    }
+
+    // Letter-flash auto-clear after 600ms (SEARCH_MERGE.md §2b).
+    LaunchedEffect(flashLetter) {
+        if (flashLetter != null) {
+            delay(600)
+            flashLetter = null
         }
     }
 }
+
+// Total count for the "N / M" counter display when typing.
+@Composable
+private fun currentTotal(tab: LibraryTab, vm: LibraryViewModel): Int {
+    val totalSongs by vm.songs.collectAsState()
+    val totalAlbums by vm.albums.collectAsState()
+    val totalArtists by vm.artists.collectAsState()
+    val totalPlaylists by vm.playlists.collectAsState()
+    val totalGenres by vm.genres.collectAsState()
+    return when (tab) {
+        LibraryTab.Songs -> totalSongs.size
+        LibraryTab.Albums -> totalAlbums.size
+        LibraryTab.Artists -> totalArtists.size
+        LibraryTab.Playlists -> totalPlaylists.size
+        LibraryTab.Genres -> totalGenres.size
+    }
+}
+
+private fun visibleCount(
+        tab: LibraryTab,
+        songs: List<*>,
+        albums: List<*>,
+        artists: List<*>,
+        playlists: List<*>,
+        genres: List<*>,
+): Int =
+        when (tab) {
+            LibraryTab.Songs -> songs.size
+            LibraryTab.Albums -> albums.size
+            LibraryTab.Artists -> artists.size
+            LibraryTab.Playlists -> playlists.size
+            LibraryTab.Genres -> genres.size
+        }
+
+private fun placeholderFor(tab: LibraryTab): String =
+        when (tab) {
+            LibraryTab.Songs -> "Filter songs…"
+            LibraryTab.Albums -> "Filter albums…"
+            LibraryTab.Artists -> "Filter artists…"
+            LibraryTab.Playlists -> "Filter playlists…"
+            LibraryTab.Genres -> "Filter genres…"
+        }
 
 // ── Songs: play-all / shuffle-all + 22px serif rows ───────────────────────
 @Composable
 private fun VinylSongsList(
         songs: List<SongEntity>,
+        query: String,
         onPlayAll: () -> Unit,
         onShuffleAll: () -> Unit,
         onSongClick: (Int) -> Unit,
@@ -151,7 +298,7 @@ private fun VinylSongsList(
     val text = MaterialTheme.sourceText
 
     Column(Modifier.fillMaxSize()) {
-        if (songs.isNotEmpty()) {
+        if (songs.isNotEmpty() && query.isBlank()) {
             Row(
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 14.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -168,7 +315,14 @@ private fun VinylSongsList(
                 ) { Text("Shuffle", style = text.pillLabel12) }
             }
         }
-        LazyColumn(Modifier.fillMaxSize()) {
+        if (songs.isEmpty() && query.isNotBlank()) {
+            NoResultsState(query = query)
+            return@Column
+        }
+        LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 96.dp),
+        ) {
             itemsIndexed(songs, key = { _, s -> s.id }) { i, song ->
                 Hairline(modifier = Modifier.padding(horizontal = 24.dp))
                 Row(
@@ -190,14 +344,14 @@ private fun VinylSongsList(
                     Spacer(Modifier.width(14.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                                text = song.title,
+                                text = highlightMatch(song.title, query, colors.accent),
                                 style = text.trackTitle22,
                                 color = colors.text,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                                text = song.artist,
+                                text = highlightMatch(song.artist, query, colors.accent),
                                 style = text.metaSmall115,
                                 color = colors.textDim,
                                 maxLines = 1,
@@ -212,7 +366,7 @@ private fun VinylSongsList(
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
-                            text = "\u2026",
+                            text = "…",
                             style = text.trackTitle22,
                             color = colors.textMute,
                             modifier = Modifier.clickable { onMore(song) }.padding(horizontal = 6.dp),
@@ -227,13 +381,18 @@ private fun VinylSongsList(
 @Composable
 private fun VinylAlbumsGrid(
         albums: List<AlbumEntity>,
+        query: String,
         onClick: (AlbumEntity) -> Unit,
 ) {
     val colors = MaterialTheme.sourceColors
     val text = MaterialTheme.sourceText
+    if (albums.isEmpty() && query.isNotBlank()) {
+        NoResultsState(query = query)
+        return
+    }
     LazyVerticalGrid(
             columns = GridCells.Fixed(2),
-            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 14.dp),
+            contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 14.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier.fillMaxSize(),
@@ -253,7 +412,7 @@ private fun VinylAlbumsGrid(
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                        text = album.title,
+                        text = highlightMatch(album.title, query, colors.accent),
                         style = text.rotationTitle18,
                         color = colors.text,
                         maxLines = 2,
@@ -271,14 +430,23 @@ private fun VinylAlbumsGrid(
     }
 }
 
-// ── Artists: 64px accent italic jump letters + A-Z rail ───────────────────
+// ── Artists: 64px accent italic jump letters + A-Z rail w/ flash ──────────
 @Composable
 private fun VinylArtistsList(
         artists: List<ArtistEntity>,
+        query: String,
+        railAlpha: Float,
+        flashLetter: Char?,
+        onJump: (Char) -> Unit,
         onClick: (ArtistEntity) -> Unit,
 ) {
     val colors = MaterialTheme.sourceColors
     val text = MaterialTheme.sourceText
+
+    if (artists.isEmpty() && query.isNotBlank()) {
+        NoResultsState(query = query)
+        return
+    }
 
     // Build letter → first-index map for jumping.
     val letterIndex =
@@ -293,22 +461,50 @@ private fun VinylArtistsList(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
+    // Scroll-driven active letter.
+    val activeLetter =
+            remember(artists, letterIndex) {
+                derivedStateOf {
+                    artists.getOrNull(listState.firstVisibleItemIndex)
+                            ?.name
+                            ?.firstOrNull()
+                            ?.uppercaseChar()
+                }
+            }
+                    .value
+
     Row(modifier = Modifier.fillMaxSize()) {
-        LazyColumn(modifier = Modifier.weight(1f), state = listState) {
+        LazyColumn(
+                modifier = Modifier.weight(1f),
+                state = listState,
+                contentPadding = PaddingValues(bottom = 96.dp),
+        ) {
             itemsIndexed(artists, key = { _, a -> a.id }) { i, artist ->
                 val prev = artists.getOrNull(i - 1)
+                val thisLetter = artist.name.firstOrNull()?.uppercaseChar()
                 val isNewLetter =
                         i == 0 ||
-                                (prev?.name?.firstOrNull()?.uppercaseChar() !=
-                                        artist.name.firstOrNull()?.uppercaseChar())
-                if (isNewLetter) {
-                    val letter = artist.name.firstOrNull()?.uppercaseChar()?.toString() ?: "#"
+                                (prev?.name?.firstOrNull()?.uppercaseChar() != thisLetter)
+                if (isNewLetter && thisLetter != null) {
+                    val flashing = flashLetter == thisLetter
+                    // 600ms accent-tinted gradient flash on the jumped letter.
+                    val flashBg by
+                            animateColorAsState(
+                                    targetValue =
+                                            if (flashing) colors.accent.copy(alpha = 0.14f)
+                                            else Color.Transparent,
+                                    animationSpec = tween(200),
+                                    label = "letterFlash",
+                            )
                     Text(
-                            text = letter,
+                            text = thisLetter.toString(),
                             style = text.libraryLetter64.copy(fontStyle = FontStyle.Italic),
-                            color = colors.accent,
+                            color =
+                                    if (query.isBlank() || flashing) colors.accent
+                                    else colors.textMute,
                             modifier =
                                     Modifier.fillMaxWidth()
+                                            .background(flashBg)
                                             .padding(start = 24.dp, top = 14.dp, bottom = 2.dp),
                     )
                 }
@@ -321,20 +517,20 @@ private fun VinylArtistsList(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                                text = artist.name,
+                                text = highlightMatch(artist.name, query, colors.accent),
                                 style = text.trackTitle22,
                                 color = colors.text,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                                text = "${artist.albumCount} albums \u00B7 ${artist.songCount} songs",
+                                text = "${artist.albumCount} albums · ${artist.songCount} songs",
                                 style = text.metaSmall115,
                                 color = colors.textDim,
                         )
                     }
                     Text(
-                            text = "\u2192",
+                            text = "→",
                             style = text.trackTitle22,
                             color = colors.textMute,
                     )
@@ -343,35 +539,36 @@ private fun VinylArtistsList(
             }
         }
 
-        // A-Z rail
-        VerticalHairline()
-        Column(
-                modifier =
-                        Modifier.width(28.dp)
-                                .fillMaxHeight()
-                                .padding(top = 20.dp, bottom = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(5.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            // Compute active letter from the first visible item's letter.
-            val activeLetter =
-                    artists.getOrNull(listState.firstVisibleItemIndex)
-                            ?.name
-                            ?.firstOrNull()
-                            ?.uppercaseChar()
-            letterIndex.keys.forEach { letter ->
-                val active = letter == activeLetter
-                Text(
-                        text = letter.toString(),
-                        style = text.kickerMono10,
-                        color = if (active) colors.accent else colors.textMute,
-                        modifier =
-                                Modifier.clickable {
-                                    letterIndex[letter]?.let { idx ->
-                                        scope.launch { listState.scrollToItem(idx) }
-                                    }
-                                },
-                )
+        // A-Z rail — fades out when typing, disables pointer input too.
+        if (railAlpha > 0f) {
+            VerticalHairline(modifier = Modifier.alpha(railAlpha))
+            Column(
+                    modifier =
+                            Modifier.width(28.dp)
+                                    .fillMaxHeight()
+                                    .alpha(railAlpha)
+                                    .padding(top = 20.dp, bottom = 20.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                letterIndex.keys.forEach { letter ->
+                    val active = letter == activeLetter
+                    Box(
+                            modifier =
+                                    Modifier.clickable {
+                                        letterIndex[letter]?.let { idx ->
+                                            scope.launch { listState.scrollToItem(idx) }
+                                            onJump(letter)
+                                        }
+                                    },
+                    ) {
+                        Text(
+                                text = letter.toString(),
+                                style = text.kickerMono10,
+                                color = if (active) colors.accent else colors.textMute,
+                        )
+                    }
+                }
             }
         }
     }
@@ -381,6 +578,7 @@ private fun VinylArtistsList(
 @Composable
 private fun VinylPlaylistsList(
         playlists: List<PlaylistEntity>,
+        query: String,
         onClick: (PlaylistEntity) -> Unit,
         onCreate: (String) -> Unit,
 ) {
@@ -390,24 +588,37 @@ private fun VinylPlaylistsList(
     var showDialog by remember { mutableStateOf(false) }
     var newName by remember { mutableStateOf("") }
 
+    if (playlists.isEmpty() && query.isNotBlank()) {
+        NoResultsState(query = query)
+        return
+    }
+
     Column(Modifier.fillMaxSize()) {
-        Row(
-                modifier =
-                        Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 14.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-        ) {
-            SectionKicker(
-                    label = "${playlists.size} Playlists",
-                    color = colors.textMute,
-            )
-            FilledTonalButton(onClick = { showDialog = true }, shape = RoundedCornerShape(100.dp)) {
-                Icon(Icons.Rounded.Add, null)
-                Spacer(Modifier.width(4.dp))
-                Text("New", style = text.pillLabel12)
+        if (query.isBlank()) {
+            Row(
+                    modifier =
+                            Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SectionKicker(
+                        label = "${playlists.size} Playlists",
+                        color = colors.textMute,
+                )
+                FilledTonalButton(
+                        onClick = { showDialog = true },
+                        shape = RoundedCornerShape(100.dp),
+                ) {
+                    Icon(Icons.Rounded.Add, null)
+                    Spacer(Modifier.width(4.dp))
+                    Text("New", style = text.pillLabel12)
+                }
             }
         }
-        LazyColumn(Modifier.fillMaxSize()) {
+        LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 96.dp),
+        ) {
             itemsIndexed(playlists, key = { _, p -> p.id }) { _, playlist ->
                 Hairline(modifier = Modifier.padding(horizontal = 24.dp))
                 Row(
@@ -418,13 +629,13 @@ private fun VinylPlaylistsList(
                         verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                            text = playlist.name,
+                            text = highlightMatch(playlist.name, query, colors.accent),
                             style = text.trackTitle22,
                             color = colors.text,
                             modifier = Modifier.weight(1f),
                     )
                     Text(
-                            text = "\u2192",
+                            text = "→",
                             style = text.trackTitle22,
                             color = colors.textMute,
                     )
@@ -461,10 +672,18 @@ private fun VinylPlaylistsList(
 
 // ── Genres ────────────────────────────────────────────────────────────────
 @Composable
-private fun VinylGenresList(genres: List<GenreEntity>) {
+private fun VinylGenresList(genres: List<GenreEntity>, query: String) {
     val colors = MaterialTheme.sourceColors
     val text = MaterialTheme.sourceText
-    LazyColumn(Modifier.fillMaxSize()) {
+
+    if (genres.isEmpty() && query.isNotBlank()) {
+        NoResultsState(query = query)
+        return
+    }
+    LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 96.dp),
+    ) {
         itemsIndexed(genres, key = { _, g -> g.id }) { _, genre ->
             Hairline(modifier = Modifier.padding(horizontal = 24.dp))
             Row(
@@ -473,7 +692,7 @@ private fun VinylGenresList(genres: List<GenreEntity>) {
                     verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                        text = genre.name,
+                        text = highlightMatch(genre.name, query, colors.accent),
                         style = text.trackTitle22,
                         color = colors.text,
                         modifier = Modifier.weight(1f),
@@ -488,6 +707,142 @@ private fun VinylGenresList(genres: List<GenreEntity>) {
     }
 }
 
+// ── No-results editorial message ──────────────────────────────────────────
+@Composable
+private fun NoResultsState(query: String) {
+    val colors = MaterialTheme.sourceColors
+    val text = MaterialTheme.sourceText
+    Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 60.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        val msg = buildAnnotatedString {
+            withStyle(SpanStyle(color = colors.textDim, fontStyle = FontStyle.Italic)) {
+                append("Nothing for “")
+            }
+            withStyle(SpanStyle(color = colors.text, fontStyle = FontStyle.Italic)) {
+                append(query)
+            }
+            withStyle(SpanStyle(color = colors.textDim, fontStyle = FontStyle.Italic)) {
+                append("”.")
+            }
+        }
+        Text(
+                text = msg,
+                style = text.editorialHeadline32.copy(fontStyle = FontStyle.Italic),
+                textAlign = TextAlign.Center,
+        )
+    }
+}
+
+// ── Floating search bar (above system nav bar) ────────────────────────────
+@Composable
+private fun FloatingSearchBar(
+        query: String,
+        placeholder: String,
+        onChange: (String) -> Unit,
+        onClear: () -> Unit,
+        modifier: Modifier = Modifier,
+) {
+    val colors = MaterialTheme.sourceColors
+    val text = MaterialTheme.sourceText
+    val focusRequester = remember { FocusRequester() }
+    var focused by remember { mutableStateOf(false) }
+    val borderColor by
+            animateColorAsState(
+                    targetValue =
+                            if (focused || query.isNotEmpty()) colors.accent else colors.hair,
+                    animationSpec = tween(200),
+                    label = "searchBarBorder",
+            )
+
+    Row(
+            modifier =
+                    modifier.clip(RoundedCornerShape(14.dp))
+                            .background(colors.surface.copy(alpha = 0.92f))
+                            .border(1.dp, borderColor, RoundedCornerShape(14.dp))
+                            .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                            ) { focusRequester.requestFocus() }
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(
+                Icons.Rounded.Search,
+                contentDescription = null,
+                tint = if (focused || query.isNotEmpty()) colors.accent else colors.textDim,
+                modifier = Modifier.size(18.dp),
+        )
+        Box(modifier = Modifier.weight(1f)) {
+            if (query.isEmpty() && !focused) {
+                Text(
+                        text = placeholder,
+                        style =
+                                text.rotationTitle18
+                                        .copy(fontStyle = FontStyle.Italic, fontSize = 20.sp),
+                        color = colors.textMute,
+                )
+            }
+            BasicTextField(
+                    value = query,
+                    onValueChange = onChange,
+                    modifier =
+                            Modifier.fillMaxWidth()
+                                    .focusRequester(focusRequester)
+                                    .onFocusChanged { focused = it.isFocused },
+                    singleLine = true,
+                    textStyle =
+                            text.rotationTitle18.copy(
+                                    fontStyle = FontStyle.Italic,
+                                    color = colors.text,
+                            ),
+                    cursorBrush = SolidColor(colors.accent),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            )
+        }
+        if (query.isEmpty()) {
+            MonoText(
+                    text = "⌘ K",
+                    color = colors.textMute,
+                    size = MonoSize.S95,
+            )
+        } else {
+            Box(
+                    modifier =
+                            Modifier.size(22.dp)
+                                    .clip(CircleShape)
+                                    .background(colors.surface2)
+                                    .border(1.dp, colors.hair, CircleShape)
+                                    .clickable { onClear() },
+                    contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                        Icons.Rounded.Close,
+                        contentDescription = "Clear",
+                        tint = colors.textDim,
+                        modifier = Modifier.size(14.dp),
+                )
+            }
+        }
+    }
+}
+
+// ── Match highlighting ────────────────────────────────────────────────────
+private fun highlightMatch(source: String, query: String, accent: Color): AnnotatedString {
+    if (query.isBlank()) return AnnotatedString(source)
+    val idx = source.lowercase().indexOf(query.lowercase())
+    if (idx < 0) return AnnotatedString(source)
+    return buildAnnotatedString {
+        append(source.substring(0, idx))
+        withStyle(SpanStyle(color = accent, fontStyle = FontStyle.Italic)) {
+            append(source.substring(idx, idx + query.length))
+        }
+        append(source.substring(idx + query.length))
+    }
+}
+
 // Legacy exported name kept so other files (if any) don't break while the
 // codebase is migrated off of it. Unused callers will be tree-shaken.
 @Composable
@@ -499,6 +854,7 @@ fun SongsList(
 ) {
     VinylSongsList(
             songs = songs,
+            query = "",
             onPlayAll = {},
             onShuffleAll = {},
             onSongClick = onSongClick,

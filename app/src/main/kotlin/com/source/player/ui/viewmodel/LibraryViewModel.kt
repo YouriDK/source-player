@@ -8,10 +8,14 @@ import com.source.player.service.PlaybackController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+enum class LibraryTab { Songs, Albums, Artists, Playlists, Genres }
+
+@OptIn(FlowPreview::class)
 @HiltViewModel
 class LibraryViewModel
 @Inject
@@ -32,6 +36,60 @@ constructor(
                 playlistDao.getAllFlow().stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
         val genres =
                 genreDao.getAllFlow().stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+        // ── Search merge state ────────────────────────────────────────────
+        private val _activeTab = MutableStateFlow(LibraryTab.Artists)
+        val activeTab: StateFlow<LibraryTab> = _activeTab.asStateFlow()
+
+        private val _query = MutableStateFlow("")
+        val query: StateFlow<String> = _query.asStateFlow()
+
+        // Debounced query — avoids thrashing filtering on fast typing.
+        private val debouncedQuery = _query.debounce(100).distinctUntilChanged()
+
+        val filteredSongs: StateFlow<List<SongEntity>> =
+                combine(debouncedQuery, songs) { q, all ->
+                        if (q.isBlank()) all
+                        else all.filter { it.title.contains(q, true) || it.artist.contains(q, true) }
+                }
+                        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+        val filteredAlbums: StateFlow<List<AlbumEntity>> =
+                combine(debouncedQuery, albums) { q, all ->
+                        if (q.isBlank()) all else all.filter { it.title.contains(q, true) }
+                }
+                        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+        val filteredArtists: StateFlow<List<ArtistEntity>> =
+                combine(debouncedQuery, artists) { q, all ->
+                        if (q.isBlank()) all else all.filter { it.name.contains(q, true) }
+                }
+                        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+        val filteredPlaylists: StateFlow<List<PlaylistEntity>> =
+                combine(debouncedQuery, playlists) { q, all ->
+                        if (q.isBlank()) all else all.filter { it.name.contains(q, true) }
+                }
+                        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+        val filteredGenres: StateFlow<List<GenreEntity>> =
+                combine(debouncedQuery, genres) { q, all ->
+                        if (q.isBlank()) all else all.filter { it.name.contains(q, true) }
+                }
+                        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+        fun onQueryChange(new: String) {
+                _query.value = new
+        }
+
+        fun onTabChange(tab: LibraryTab) {
+                if (_activeTab.value != tab) {
+                        _activeTab.value = tab
+                        // Per SEARCH_MERGE.md §4: clear query on tab change so the
+                        // placeholder text refreshes and results never look mismatched.
+                        _query.value = ""
+                }
+        }
 
         fun playSongsFromIndex(songs: List<SongEntity>, index: Int) {
                 val items = songs.map { it.toMediaItem() }

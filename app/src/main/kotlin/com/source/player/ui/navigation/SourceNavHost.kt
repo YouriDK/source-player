@@ -15,7 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
-import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -66,12 +66,13 @@ data class BottomNavItem(
         val selectedIcon: ImageVector = icon,
 )
 
-// 5 bottom tabs — Folders is a first-class destination alongside Home/Search/Library/Settings.
+// Vinyl bottom nav — Search is merged into Library (see SEARCH_MERGE.md).
+// Folders is kept as a first-class destination, as requested.
 val bottomNavItems =
         listOf(
                 BottomNavItem(Routes.HOME, "Home", Icons.Rounded.Home),
-                BottomNavItem(Routes.SEARCH, "Search", Icons.Rounded.Search),
                 BottomNavItem(Routes.LIBRARY, "Library", Icons.Rounded.LibraryMusic),
+                BottomNavItem(Routes.QUEUE, "Queue", Icons.AutoMirrored.Rounded.QueueMusic),
                 BottomNavItem(Routes.FOLDERS, "Folders", Icons.Rounded.Folder),
                 BottomNavItem(Routes.SETTINGS, "Settings", Icons.Rounded.Settings),
         )

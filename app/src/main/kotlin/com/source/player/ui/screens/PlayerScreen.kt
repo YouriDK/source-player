@@ -317,28 +317,39 @@ private fun AmbientGlow(accent: Color) {
     )
 }
 
-// ── Hero title with graceful fallback ─────────────────────────────────────
+// ── Hero title with measured auto-fit ─────────────────────────────────────
+// Spec (design_handoff_vinyl/README.md): start at 140sp; if the rendered title
+// overflows 2 lines OR horizontally, shrink in 4sp steps down to 44sp min.
+// Letter-spacing stays -5sp while size > 90sp, then drops to -2sp.
 @Composable
 private fun VinylHeroTitle(title: String) {
     val base = MaterialTheme.sourceText.heroTitle140
     val colors = MaterialTheme.sourceColors
-    // Heuristic: if the title is short enough to fit on one or two lines at
-    // 140px, keep it. Otherwise drop to 112px per the handoff.
-    val large = title.length <= 16
-    val style =
-            if (large) base
-            else
-                    base.copy(
-                            fontSize = 112.sp,
-                    )
+
+    // Reset the fit every time the title text changes.
+    var titleSize by remember(title) { mutableFloatStateOf(140f) }
+
     Text(
             text = title,
-            style = style.copy(fontStyle = FontStyle.Italic),
+            style =
+                    base.copy(
+                            fontStyle = FontStyle.Italic,
+                            fontSize = titleSize.sp,
+                            letterSpacing = if (titleSize > 90f) (-5).sp else (-2).sp,
+                    ),
             color = colors.text,
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth(),
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis,
+            maxLines = 2,
+            softWrap = true,
+            overflow = TextOverflow.Visible,
+            onTextLayout = { result ->
+                if ((result.didOverflowHeight || result.didOverflowWidth) &&
+                                titleSize > 44f
+                ) {
+                    titleSize -= 4f
+                }
+            },
     )
 }
 
