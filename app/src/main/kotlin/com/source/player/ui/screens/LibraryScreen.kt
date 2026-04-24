@@ -6,6 +6,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -42,7 +44,10 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -541,27 +546,64 @@ private fun VinylArtistsList(
 
         // A-Z rail — fades out when typing, disables pointer input too.
         if (railAlpha > 0f) {
+            val letters = remember(letterIndex) { letterIndex.keys.toList() }
+            val density = LocalDensity.current
+            val topPadPx = with(density) { 20.dp.toPx() }
+            val bottomPadPx = with(density) { 20.dp.toPx() }
+            var columnHeightPx by remember { mutableStateOf(0) }
+
             VerticalHairline(modifier = Modifier.alpha(railAlpha))
             Column(
                     modifier =
                             Modifier.width(28.dp)
                                     .fillMaxHeight()
                                     .alpha(railAlpha)
-                                    .padding(top = 20.dp, bottom = 20.dp),
+                                    .padding(top = 20.dp, bottom = 20.dp)
+                                    .onSizeChanged { columnHeightPx = it.height }
+                                    .pointerInput(letters) {
+                                        if (letters.isEmpty()) return@pointerInput
+                                        awaitEachGesture {
+                                            var lastLetter: Char? = null
+                                            fun dispatch(y: Float) {
+                                                val h = columnHeightPx
+                                                if (h <= 0) return
+                                                val inner =
+                                                        (h - topPadPx - bottomPadPx)
+                                                                .coerceAtLeast(1f)
+                                                val slot =
+                                                        (((y - topPadPx) / inner) *
+                                                                        letters.size)
+                                                                .toInt()
+                                                                .coerceIn(0, letters.size - 1)
+                                                val letter = letters[slot]
+                                                if (letter != lastLetter) {
+                                                    lastLetter = letter
+                                                    letterIndex[letter]?.let { idx ->
+                                                        scope.launch {
+                                                            listState.scrollToItem(idx)
+                                                        }
+                                                        onJump(letter)
+                                                    }
+                                                }
+                                            }
+                                            val down = awaitFirstDown(requireUnconsumed = false)
+                                            dispatch(down.position.y)
+                                            while (true) {
+                                                val event = awaitPointerEvent()
+                                                val change =
+                                                        event.changes.firstOrNull() ?: break
+                                                if (!change.pressed) break
+                                                dispatch(change.position.y)
+                                                change.consume()
+                                            }
+                                        }
+                                    },
                     verticalArrangement = Arrangement.spacedBy(5.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                letterIndex.keys.forEach { letter ->
+                letters.forEach { letter ->
                     val active = letter == activeLetter
-                    Box(
-                            modifier =
-                                    Modifier.clickable {
-                                        letterIndex[letter]?.let { idx ->
-                                            scope.launch { listState.scrollToItem(idx) }
-                                            onJump(letter)
-                                        }
-                                    },
-                    ) {
+                    Box {
                         Text(
                                 text = letter.toString(),
                                 style = text.kickerMono10,
