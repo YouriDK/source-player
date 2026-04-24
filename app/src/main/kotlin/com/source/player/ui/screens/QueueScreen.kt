@@ -5,13 +5,16 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -40,6 +43,13 @@ fun QueueScreen(
     val colors = MaterialTheme.sourceColors
     val text = MaterialTheme.sourceText
 
+    val listState = rememberLazyListState()
+    LaunchedEffect(currentIndex, queue.size) {
+        if (currentIndex in queue.indices) {
+            listState.animateScrollToItem(currentIndex)
+        }
+    }
+
     Column(Modifier.fillMaxSize().systemBarsPadding().background(colors.bg)) {
         // Header block: kicker + "What's / next."
         Column(modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 18.dp)) {
@@ -52,14 +62,16 @@ fun QueueScreen(
             )
         }
 
-        LazyColumn(Modifier.fillMaxSize()) {
+        LazyColumn(Modifier.fillMaxSize(), state = listState) {
             itemsIndexed(queue, key = { i, item -> "${item.mediaId}_$i" }) { i, item ->
                 val isCurrent = i == currentIndex
+                val isPlayed = i < currentIndex
                 Hairline(modifier = Modifier.padding(horizontal = 24.dp))
                 Row(
                         modifier =
                                 Modifier.fillMaxWidth()
                                         .clickable { vm.skipToQueueItem(i) }
+                                        .alpha(if (isPlayed) 0.45f else 1f)
                                         .padding(horizontal = 24.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.Top,
                 ) {
