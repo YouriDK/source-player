@@ -36,12 +36,15 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import com.source.player.ui.components.MonoSize
@@ -58,18 +61,19 @@ fun PlayerScreen(
         navController: NavController,
         vm: PlayerViewModel = hiltViewModel(),
 ) {
-    val song by vm.currentSong.collectAsState()
-    val isPlaying by vm.isPlaying.collectAsState()
-    val positionMs by vm.positionMs.collectAsState()
-    val durationMs by vm.durationMs.collectAsState()
-    val repeatMode by vm.repeatMode.collectAsState()
-    val shuffleEnabled by vm.shuffleEnabled.collectAsState()
-    val queueIndex by vm.queueIndex.collectAsState()
-    val queueSize by vm.queueItems.collectAsState()
-    val songId by vm.currentSongId.collectAsState()
-    val playbackError by vm.playbackError.collectAsState()
-    val sonosActive by vm.sonosActive.collectAsState()
-    val sonosVolume by vm.sonosVolume.collectAsState()
+    val song by vm.currentSong.collectAsStateWithLifecycle()
+    val isPlaying by vm.isPlaying.collectAsStateWithLifecycle()
+    // Deliberately NOT delegated with `by`: read only inside VinylScrubber, so the
+    // 300ms position tick invalidates the scrubber, not this whole screen.
+    val positionMs = vm.positionMs.collectAsStateWithLifecycle()
+    val durationMs = vm.durationMs.collectAsStateWithLifecycle()
+    val repeatMode by vm.repeatMode.collectAsStateWithLifecycle()
+    val shuffleEnabled by vm.shuffleEnabled.collectAsStateWithLifecycle()
+    val queueIndex by vm.queueIndex.collectAsStateWithLifecycle()
+    val songId by vm.currentSongId.collectAsStateWithLifecycle()
+    val playbackError by vm.playbackError.collectAsStateWithLifecycle()
+    val sonosActive by vm.sonosActive.collectAsStateWithLifecycle()
+    val sonosVolume by vm.sonosVolume.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     LaunchedEffect(playbackError) {
@@ -90,7 +94,7 @@ fun PlayerScreen(
                 modifier =
                         Modifier.fillMaxSize()
                                 .systemBarsPadding()
-                                .pointerInput(queueSize.size, shuffleEnabled) {
+                                .pointerInput(Unit) {
                                     // Horizontal fling anywhere on the hero area → next/prev.
                                     detectHorizontalDragGestures(onDragEnd = {}) { change, drag ->
                                         change.consume()
@@ -141,35 +145,42 @@ fun PlayerScreen(
                         modifier = Modifier.fillMaxWidth(),
                 )
 
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(24.dp))
 
-                // The title — 140px italic serif with trailing period. Wraps
-                // naturally; if the total line count would push the scrubber
-                // off-screen, fall back to 112px.
-                val rawTitle = song?.mediaMetadata?.title?.toString() ?: "—"
-                val titleText = if (rawTitle.endsWith(".")) rawTitle else "$rawTitle."
-                VinylHeroTitle(titleText)
+                // Album artwork — the visual anchor of the hero, above the title.
+                AsyncImage(
+                        model = song?.mediaMetadata?.artworkUri,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier =
+                                Modifier.fillMaxWidth(0.58f)
+                                        .aspectRatio(1f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(colors.surface2),
+                )
 
-                Spacer(Modifier.height(22.dp))
+                Spacer(Modifier.height(26.dp))
 
-                // Art dot + artist
-                Row(
+                // The title — Manrope SemiBold, auto-fit 56sp → 28sp over max
+                // two lines. (The trailing-period flourish belonged to the old
+                // serif treatment and reads as a typo on a neutral sans.)
+                VinylHeroTitle(song?.mediaMetadata?.title?.toString() ?: "—")
+
+                Spacer(Modifier.height(10.dp))
+
+                // Artist — tap to open the tag editor
+                Text(
+                        text = song?.mediaMetadata?.artist?.toString() ?: "—",
+                        style = text.libraryRow19,
+                        color = colors.text,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
                         modifier =
                                 Modifier.clickable(enabled = songId != null) {
                                     songId?.let { navController.navigate(Routes.tagEditor(it)) }
                                 },
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    ArtDot(artUri = song?.mediaMetadata?.artworkUri?.toString())
-                    Text(
-                            text = song?.mediaMetadata?.artist?.toString() ?: "—",
-                            style = text.libraryRow19,
-                            color = colors.text,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                )
 
                 val album = song?.mediaMetadata?.albumTitle?.toString()
                 if (!album.isNullOrBlank()) {
@@ -318,91 +329,100 @@ private fun AmbientGlow(accent: Color) {
 }
 
 // ── Hero title with measured auto-fit ─────────────────────────────────────
-// Spec (design_handoff_vinyl/README.md): start at 140sp; if the rendered title
-// overflows 2 lines OR horizontally, shrink in 4sp steps down to 44sp min.
-// Letter-spacing stays -5sp while size > 90sp, then drops to -2sp.
+// Manrope SemiBold, auto-fit: largest 4sp step in [28, 56] whose rendering
+// fits two lines. Binary-searched with a TextMeasurer in a single composition
+// (an onTextLayout shrink loop would relayout once per candidate size).
 @Composable
 private fun VinylHeroTitle(title: String) {
-    val base = MaterialTheme.sourceText.heroTitle140
+    val base = MaterialTheme.sourceText.playerTitle56
     val colors = MaterialTheme.sourceColors
+    val measurer = rememberTextMeasurer()
 
-    // Reset the fit every time the title text changes.
-    var titleSize by remember(title) { mutableFloatStateOf(140f) }
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val maxWidthPx = constraints.maxWidth
 
-    Text(
-            text = title,
-            style =
-                    base.copy(
-                            fontStyle = FontStyle.Italic,
-                            fontSize = titleSize.sp,
-                            letterSpacing = if (titleSize > 90f) (-5).sp else (-2).sp,
-                    ),
-            color = colors.text,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth(),
-            maxLines = 2,
-            softWrap = true,
-            overflow = TextOverflow.Visible,
-            onTextLayout = { result ->
-                if ((result.didOverflowHeight || result.didOverflowWidth) &&
-                                titleSize > 44f
-                ) {
-                    titleSize -= 4f
+        fun styleFor(size: Float) = base.copy(fontSize = size.sp)
+
+        val titleSize =
+                remember(title, maxWidthPx) {
+                    fun fits(size: Float): Boolean {
+                        val result =
+                                measurer.measure(
+                                        text = AnnotatedString(title),
+                                        style = styleFor(size),
+                                        constraints = Constraints(maxWidth = maxWidthPx),
+                                        maxLines = 2,
+                                        softWrap = true,
+                                )
+                        return !result.didOverflowHeight && !result.didOverflowWidth
+                    }
+                    // Largest size in {56, 52, …, 28} that fits; 28 is the floor
+                    // even when it still overflows.
+                    var best = 28f
+                    var lo = 0
+                    var hi = 7
+                    while (lo <= hi) {
+                        val mid = (lo + hi) / 2
+                        val candidate = 56f - 4f * mid
+                        if (fits(candidate)) {
+                            best = candidate
+                            hi = mid - 1
+                        } else {
+                            lo = mid + 1
+                        }
+                    }
+                    best
                 }
-            },
-    )
-}
 
-// ── 36px circular art dot ─────────────────────────────────────────────────
-@Composable
-private fun ArtDot(artUri: String?) {
-    Box(
-            modifier =
-                    Modifier.size(36.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.sourceColors.surface2),
-    ) {
-        if (artUri != null) {
-            AsyncImage(
-                    model = artUri,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-            )
-        }
+        Text(
+                text = title,
+                style = styleFor(titleSize),
+                color = colors.text,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+                maxLines = 2,
+                softWrap = true,
+                overflow = TextOverflow.Visible,
+        )
     }
 }
 
 // ── Scrubber ──────────────────────────────────────────────────────────────
+// Takes State<Long> instead of raw values: the 300ms position tick then
+// recomposes only this small leaf, never the whole PlayerScreen.
 @Composable
 private fun VinylScrubber(
-        positionMs: Long,
-        durationMs: Long,
+        positionMs: State<Long>,
+        durationMs: State<Long>,
         accent: Color,
         hair: Color,
         textDim: Color,
         onSeek: (Long) -> Unit,
         modifier: Modifier = Modifier,
 ) {
-    val progress = if (durationMs > 0) positionMs.toFloat() / durationMs else 0f
+    val position = positionMs.value
+    val duration = durationMs.value
+    val progress = if (duration > 0) position.toFloat() / duration else 0f
     var isDragging by remember { mutableStateOf(false) }
     var dragProgress by remember { mutableFloatStateOf(0f) }
     val display = if (isDragging) dragProgress else progress
-    val elapsed = if (isDragging) (dragProgress * durationMs).toLong() else positionMs
-    val remainingMs = (durationMs - elapsed).coerceAtLeast(0L)
+    val elapsed = if (isDragging) (dragProgress * duration).toLong() else position
+    val remainingMs = (duration - elapsed).coerceAtLeast(0L)
 
     Column(modifier = modifier.fillMaxWidth()) {
         Box(
                 modifier =
                         Modifier.fillMaxWidth()
                                 .height(24.dp)
-                                .pointerInput(durationMs) {
+                                .pointerInput(Unit) {
                                     detectTapGestures { offset ->
                                         val f = (offset.x / size.width).coerceIn(0f, 1f)
-                                        onSeek((f * durationMs).toLong())
+                                        // durationMs.value read at event time — no need to
+                                        // restart the gesture detector when it changes.
+                                        onSeek((f * durationMs.value).toLong())
                                     }
                                 }
-                                .pointerInput(durationMs) {
+                                .pointerInput(Unit) {
                                     detectHorizontalDragGestures(
                                             onDragStart = { offset ->
                                                 isDragging = true
@@ -410,7 +430,10 @@ private fun VinylScrubber(
                                                         (offset.x / size.width).coerceIn(0f, 1f)
                                             },
                                             onDragEnd = {
-                                                onSeek((dragProgress * durationMs).toLong())
+                                                onSeek(
+                                                        (dragProgress * durationMs.value)
+                                                                .toLong()
+                                                )
                                                 isDragging = false
                                             },
                                             onDragCancel = { isDragging = false },

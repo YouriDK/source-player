@@ -17,6 +17,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.source.player.data.db.entity.PlaylistEntity
 import com.source.player.data.db.entity.SongEntity
@@ -31,9 +32,9 @@ fun SongOptionsSheet(
         onDismiss: () -> Unit,
         vm: SongOptionsViewModel = hiltViewModel(),
 ) {
-    val playlists by vm.playlists.collectAsState()
-    val addedToPlaylistId by vm.addedToPlaylistId.collectAsState()
-    val toastMsg by vm.toastMessage.collectAsState()
+    val playlists by vm.playlists.collectAsStateWithLifecycle()
+    val addedToPlaylistId by vm.addedToPlaylistId.collectAsStateWithLifecycle()
+    val toastMsg by vm.toastMessage.collectAsStateWithLifecycle()
     var showPlaylistPicker by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
@@ -155,7 +156,7 @@ fun SongOptionsSheet(
                     }
                 } else {
                     LazyColumn {
-                        items(playlists) { playlist ->
+                        items(playlists, key = { it.id }) { playlist ->
                             PlaylistPickerRow(
                                     playlist = playlist,
                                     onClick = { vm.addSongToPlaylist(song.id, playlist.id) }

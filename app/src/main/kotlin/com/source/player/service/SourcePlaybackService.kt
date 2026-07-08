@@ -63,6 +63,9 @@ class SourcePlaybackService : MediaSessionService() {
                 ExoPlayer.Builder(this)
                         .setAudioAttributes(audioAttributes, true)
                         .setHandleAudioBecomingNoisy(true)
+                        // Hold a partial wake lock while playing — without it, doze CPU
+                        // throttling with the screen off causes intermittent stutter.
+                        .setWakeMode(C.WAKE_MODE_LOCAL)
                         .build()
 
         // Initialize Cast — may throw if Play Services unavailable; fall back gracefully
@@ -162,10 +165,10 @@ class SourcePlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
-        mediaSession?.run {
-            player.release()
-            release()
-        }
+        mediaSession?.release()
+        // Release BOTH players explicitly: mediaSession.player is only the ACTIVE one,
+        // so releasing just it leaked the ExoPlayer whenever Cast was in control.
+        localPlayer?.release()
         castPlayer?.release()
         localAudioHttpServer.stop()
         mediaSession = null

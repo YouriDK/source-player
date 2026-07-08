@@ -19,17 +19,16 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.source.player.ui.components.Hairline
 import com.source.player.ui.theme.sourceColors
@@ -47,10 +46,13 @@ fun MiniPlayerBar(
         onTap: () -> Unit,
         vm: PlayerViewModel = hiltViewModel(),
 ) {
-    val song by vm.currentSong.collectAsState()
-    val isPlaying by vm.isPlaying.collectAsState()
-    val positionMs by vm.positionMs.collectAsState()
-    val durationMs by vm.durationMs.collectAsState()
+    val song by vm.currentSong.collectAsStateWithLifecycle()
+    val isPlaying by vm.isPlaying.collectAsStateWithLifecycle()
+    // Deliberately NOT delegated with `by`: the values are read only inside the
+    // progress-indicator lambda (draw phase). Reading them here would recompose
+    // this whole bar — overlaid on every screen — on every 300ms position tick.
+    val positionMs = vm.positionMs.collectAsStateWithLifecycle()
+    val durationMs = vm.durationMs.collectAsStateWithLifecycle()
 
     val colors = MaterialTheme.sourceColors
     val text = MaterialTheme.sourceText
@@ -61,8 +63,6 @@ fun MiniPlayerBar(
             exit = slideOutVertically { it } + fadeOut(),
             modifier = modifier.fillMaxWidth(),
     ) {
-        val progress = if (durationMs > 0) positionMs.toFloat() / durationMs else 0f
-
         Column(modifier = Modifier.fillMaxWidth().background(colors.bg).clickable(onClick = onTap)) {
             Hairline()
             Row(
@@ -82,7 +82,7 @@ fun MiniPlayerBar(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                             text = song?.mediaMetadata?.title?.toString() ?: "",
-                            style = text.rotationTitle18.copy(fontStyle = FontStyle.Italic),
+                            style = text.rotationTitle18,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             color = colors.text,
@@ -116,7 +116,10 @@ fun MiniPlayerBar(
                 }
             }
             LinearProgressIndicator(
-                    progress = { progress },
+                    progress = {
+                        val duration = durationMs.value
+                        if (duration > 0) positionMs.value.toFloat() / duration else 0f
+                    },
                     modifier = Modifier.fillMaxWidth().height(2.dp),
                     color = colors.accent,
                     trackColor = Color.Transparent,

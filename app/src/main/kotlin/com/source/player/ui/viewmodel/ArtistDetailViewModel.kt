@@ -44,12 +44,17 @@ constructor(
             songs
                     .map { list ->
                         val ids = list.map { it.albumId }.distinct()
-                        ids.mapNotNull { albumDao.getById(it) }
+                        val byId = albumDao.getByIds(ids).associateBy { it.id }
+                        ids.mapNotNull { byId[it] }
                     }
                     .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
+    private var loadedId: Long? = null
+
     fun load(id: Long) {
+        if (loadedId == id) return
         artistId.value = id
+        loadedId = id
     }
 
     fun playAll() = controller.setQueueFromEntities(songs.value, 0)

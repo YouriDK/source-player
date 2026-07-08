@@ -37,11 +37,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import com.source.player.data.db.entity.AlbumEntity
@@ -65,8 +65,8 @@ fun AlbumDetailScreen(
         vm: AlbumDetailViewModel = hiltViewModel(),
 ) {
     LaunchedEffect(albumId) { vm.load(albumId) }
-    val album by vm.album.collectAsState()
-    val songs by vm.songs.collectAsState()
+    val album by vm.album.collectAsStateWithLifecycle()
+    val songs by vm.songs.collectAsStateWithLifecycle()
 
     val colors = MaterialTheme.sourceColors
     val text = MaterialTheme.sourceText
@@ -200,9 +200,9 @@ fun ArtistDetailScreen(
         vm: ArtistDetailViewModel = hiltViewModel(),
 ) {
     LaunchedEffect(artistId) { vm.load(artistId) }
-    val artist by vm.artist.collectAsState()
-    val songs by vm.songs.collectAsState()
-    val albums by vm.albums.collectAsState()
+    val artist by vm.artist.collectAsStateWithLifecycle()
+    val songs by vm.songs.collectAsStateWithLifecycle()
+    val albums by vm.albums.collectAsStateWithLifecycle()
 
     val colors = MaterialTheme.sourceColors
     val text = MaterialTheme.sourceText
@@ -233,7 +233,7 @@ fun ArtistDetailScreen(
             ) {
                 Text(
                         text = initial,
-                        style = text.homeFeature96.copy(fontStyle = FontStyle.Italic),
+                        style = text.homeFeature96,
                         color = colors.accent,
                 )
                 Spacer(Modifier.height(6.dp))
@@ -278,7 +278,7 @@ fun ArtistDetailScreen(
                 LazyRow(
                         contentPadding = PaddingValues(horizontal = 24.dp),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
-                ) { items(albums) { album -> ArtistAlbumTile(album) } }
+                ) { items(albums, key = { it.id }) { album -> ArtistAlbumTile(album) } }
                 Spacer(Modifier.height(20.dp))
             }
         }
@@ -369,11 +369,11 @@ private fun ArtistAlbumTile(album: AlbumEntity) {
 @Composable
 fun PlaylistDetailScreen(navController: NavController, playlistId: Long) {
     val vm: PlaylistDetailViewModel = hiltViewModel()
-    val playlist by vm.playlist.collectAsState()
-    val songs by vm.songs.collectAsState()
-    val filteredSongs by vm.filteredSongs.collectAsState()
-    val searchQuery by vm.searchQuery.collectAsState()
-    val toastMsg by vm.toastMessage.collectAsState()
+    val playlist by vm.playlist.collectAsStateWithLifecycle()
+    val songs by vm.songs.collectAsStateWithLifecycle()
+    val filteredSongs by vm.filteredSongs.collectAsStateWithLifecycle()
+    val searchQuery by vm.searchQuery.collectAsStateWithLifecycle()
+    val toastMsg by vm.toastMessage.collectAsStateWithLifecycle()
     var showAddSheet by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
@@ -466,7 +466,7 @@ fun PlaylistDetailScreen(navController: NavController, playlistId: Long) {
                     ) {
                         Text(
                                 "No songs yet.",
-                                style = text.editorialHeadline32.copy(fontStyle = FontStyle.Italic),
+                                style = text.editorialHeadline32,
                                 color = colors.textDim,
                         )
                         Spacer(Modifier.height(8.dp))
@@ -545,7 +545,7 @@ fun PlaylistDetailScreen(navController: NavController, playlistId: Long) {
             ) {
                 Text(
                         text = "Add songs.",
-                        style = text.editorialHeadline32.copy(fontStyle = FontStyle.Italic),
+                        style = text.editorialHeadline32,
                         color = colors.text,
                         modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp),
                 )
@@ -574,8 +574,9 @@ fun PlaylistDetailScreen(navController: NavController, playlistId: Long) {
                         )
                     }
                 } else {
+                    val limited = remember(filteredSongs) { filteredSongs.take(50) }
                     LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
-                        items(filteredSongs.take(50), key = { it.id }) { song ->
+                        items(limited, key = { it.id }) { song ->
                             Row(
                                     modifier =
                                             Modifier.fillMaxWidth()
@@ -626,6 +627,6 @@ private fun formatDurationLong(totalMs: Long): String {
 @Suppress("unused")
 private fun albumHeadline(album: String): AnnotatedString =
         buildAnnotatedString {
-            withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(album) }
+            withStyle(SpanStyle()) { append(album) }
             append(".")
         }

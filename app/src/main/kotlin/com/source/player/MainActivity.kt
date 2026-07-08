@@ -1,47 +1,39 @@
 package com.source.player
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.source.player.ui.navigation.SourceNavHost
 import com.source.player.ui.theme.SourceTheme
 import com.source.player.ui.viewmodel.SettingsViewModel
 import dagger.hilt.android.AndroidEntryPoint
+import java.io.File
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
   /**
-   * The correct permission to request at runtime:
-   * - API 33+ (Android 13+): READ_MEDIA_AUDIO
-   * - API 26-32 : READ_EXTERNAL_STORAGE
-   *
-   * We register the launcher unconditionally — it's a no-op if permission is already granted. The
-   * launcher is created before onCreate per Activity Result API contract.
+   * Single launcher for all runtime permissions. The launcher is registered unconditionally
+   * (before onCreate completes, per Activity Result API contract), but only launched when at
+   * least one permission is actually missing — see [requestMissingPermissions].
    */
-  private val audioPermission =
-          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            Manifest.permission.READ_MEDIA_AUDIO
-          } else {
-            Manifest.permission.READ_EXTERNAL_STORAGE
-          }
-
   private val permissionLauncher =
-          registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ ->
-            // Result handled reactively — HomeScreen observes checkSelfPermission() via ViewModel
-          }
-
-  private val notificationPermissionLauncher =
-          registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ ->
-            // Media3 handles notification display regardless of permission result
+          registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { _ ->
+            // Results handled reactively — HomeScreen observes checkSelfPermission() via
+            // ViewModel, and Media3 handles notification display regardless of the result.
           }
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -49,13 +41,8 @@ class MainActivity : ComponentActivity() {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
 
-    // Request on first launch — no-op if already granted
-    permissionLauncher.launch(audioPermission)
-
-    // Request notification permission on Android 13+
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-      notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-    }
+    requestMissingPermissions()
+    surfaceLastCrashLog()
 
     setContent {
       val settingsVm: SettingsViewModel = hiltViewModel()
@@ -63,5 +50,57 @@ class MainActivity : ComponentActivity() {
       val accentHue by settingsVm.accentHue.collectAsState()
       SourceTheme(darkTheme = isDark, accentHue = accentHue) { SourceNavHost() }
     }
+  }
+
+  /**
+   * Requests only the runtime permissions that are not yet granted:
+   * - API 33+ (Android 13+): READ_MEDIA_AUDIO + POST_NOTIFICATIONS
+   * - API 26-32 : READ_EXTERNAL_STORAGE
+   *
+   * Launching only when something is missing avoids re-prompting on every activity recreation
+   * (rotation, theme change, ...), which would burn Android 11+'s limited ask quota, and a
+   * single multi-permission request avoids racing two dialogs.
+   */
+  private fun requestMissingPermissions() {
+    val audioPermission =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+              Manifest.permission.READ_MEDIA_AUDIO
+            } else {
+              Manifest.permission.READ_EXTERNAL_STORAGE
+            }
+
+    val missing = buildList {
+      add(audioPermission)
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        add(Manifest.permission.POST_NOTIFICATIONS)
+      }
+    }.filter {
+      ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+    }
+
+    if (missing.isNotEmpty()) {
+      permissionLauncher.launch(missing.toTypedArray())
+    }
+  }
+
+  /**
+   * If the previous session died with a crash (recorded by [SourceApplication]'s handler),
+   * copy the stack trace to the clipboard so it can be pasted into a bug report, then clear
+   * the record so it only surfaces once.
+   */
+  private fun surfaceLastCrashLog() {
+    val crashFile = File(filesDir, SourceApplication.CRASH_FILE)
+    if (!crashFile.exists()) return
+    val trace = runCatching { crashFile.readText() }.getOrNull()
+    crashFile.delete()
+    if (trace.isNullOrBlank()) return
+    val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText("Source crash log", trace))
+    Toast.makeText(
+                    this,
+                    "Crash log from previous session copied to clipboard",
+                    Toast.LENGTH_LONG,
+            )
+            .show()
   }
 }

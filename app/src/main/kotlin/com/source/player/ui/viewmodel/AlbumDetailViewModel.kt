@@ -39,8 +39,12 @@ constructor(
                   }
                   .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
+  private var loadedId: Long? = null
+
   fun load(id: Long) {
+    if (loadedId == id) return
     albumId.value = id
+    loadedId = id
   }
 
   fun playAll(songs: List<SongEntity>) {

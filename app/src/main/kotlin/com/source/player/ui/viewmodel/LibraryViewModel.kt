@@ -27,15 +27,28 @@ constructor(
         private val genreDao: GenreDao,
         private val controller: PlaybackController,
 ) : ViewModel() {
-        val songs = songDao.getAllFlow().stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+        // distinctUntilChanged: Room re-emits on ANY table invalidation, even when the
+        // query result is identical — dedupe before the filter pipelines below re-run.
+        val songs =
+                songDao.getAllFlow()
+                        .distinctUntilChanged()
+                        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
         val albums =
-                albumDao.getAllFlow().stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+                albumDao.getAllFlow()
+                        .distinctUntilChanged()
+                        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
         val artists =
-                artistDao.getAllFlow().stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+                artistDao.getAllFlow()
+                        .distinctUntilChanged()
+                        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
         val playlists =
-                playlistDao.getAllFlow().stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+                playlistDao.getAllFlow()
+                        .distinctUntilChanged()
+                        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
         val genres =
-                genreDao.getAllFlow().stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+                genreDao.getAllFlow()
+                        .distinctUntilChanged()
+                        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
         // ── Search merge state ────────────────────────────────────────────
         private val _activeTab = MutableStateFlow(LibraryTab.Artists)
@@ -47,35 +60,41 @@ constructor(
         // Debounced query — avoids thrashing filtering on fast typing.
         private val debouncedQuery = _query.debounce(100).distinctUntilChanged()
 
+        // flowOn(Default): filtering the full library must not run on the main thread.
         val filteredSongs: StateFlow<List<SongEntity>> =
                 combine(debouncedQuery, songs) { q, all ->
                         if (q.isBlank()) all
                         else all.filter { it.title.contains(q, true) || it.artist.contains(q, true) }
                 }
+                        .flowOn(Dispatchers.Default)
                         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
         val filteredAlbums: StateFlow<List<AlbumEntity>> =
                 combine(debouncedQuery, albums) { q, all ->
                         if (q.isBlank()) all else all.filter { it.title.contains(q, true) }
                 }
+                        .flowOn(Dispatchers.Default)
                         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
         val filteredArtists: StateFlow<List<ArtistEntity>> =
                 combine(debouncedQuery, artists) { q, all ->
                         if (q.isBlank()) all else all.filter { it.name.contains(q, true) }
                 }
+                        .flowOn(Dispatchers.Default)
                         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
         val filteredPlaylists: StateFlow<List<PlaylistEntity>> =
                 combine(debouncedQuery, playlists) { q, all ->
                         if (q.isBlank()) all else all.filter { it.name.contains(q, true) }
                 }
+                        .flowOn(Dispatchers.Default)
                         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
         val filteredGenres: StateFlow<List<GenreEntity>> =
                 combine(debouncedQuery, genres) { q, all ->
                         if (q.isBlank()) all else all.filter { it.name.contains(q, true) }
                 }
+                        .flowOn(Dispatchers.Default)
                         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
         fun onQueryChange(new: String) {

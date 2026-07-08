@@ -131,6 +131,7 @@ fun SourceTheme(
                         if (darkTheme) darkScheme(accent) else lightScheme(accent)
                 }
         val textStyles = remember { SourceTextStyles.build() }
+        val typography = remember(fontFamily) { buildTypography(fontFamily) }
 
         CompositionLocalProvider(
                 LocalSourceColors provides sourceColors,
@@ -138,7 +139,7 @@ fun SourceTheme(
         ) {
                 MaterialTheme(
                         colorScheme = colorScheme,
-                        typography = buildTypography(fontFamily),
+                        typography = typography,
                         shapes = SourceShapes,
                         content = content,
                 )

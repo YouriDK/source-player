@@ -33,7 +33,8 @@ constructor(
     val breadcrumbs: StateFlow<List<Pair<String, String?>>> = _breadcrumbs.asStateFlow()
 
     private val allSongs: StateFlow<List<SongEntity>> =
-            songDao.getAllFlow().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+            songDao.getAllFlow()
+                    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * Immediate subfolders of the current path. Shows the real filesystem tree from the music root.
@@ -95,7 +96,7 @@ constructor(
                                 .sortedBy { it.name }
                     }
                     .flowOn(Dispatchers.Default)
-                    .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+                    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Direct songs at exactly the current path level */
     val songsInFolder: StateFlow<List<SongEntity>> =
@@ -104,7 +105,7 @@ constructor(
                         else songs.filter { it.folderPath == current }.sortedBy { it.title }
                     }
                     .flowOn(Dispatchers.Default)
-                    .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+                    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Total direct-child song count at current level (for header display) */
     val totalSongsCount: StateFlow<Int> =
@@ -117,7 +118,7 @@ constructor(
                                 }
                     }
                     .flowOn(Dispatchers.Default)
-                    .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+                    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     private fun computeRoot(songs: List<SongEntity>): String {
         if (songs.isEmpty()) return ""
@@ -231,15 +232,15 @@ constructor(
                     }
             if (songs.isEmpty()) return@launch
             val currentMax = playlistDao.maxPosition(playlistId) ?: -1
-            songs.forEachIndexed { i, song ->
-                playlistDao.addSongToPlaylist(
+            val entries =
+                    songs.mapIndexed { i, song ->
                         com.source.player.data.db.entity.PlaylistSongEntity(
                                 playlistId = playlistId,
                                 songId = song.id,
                                 position = currentMax + 1 + i
                         )
-                )
-            }
+                    }
+            playlistDao.addSongsToPlaylist(entries)
         }
     }
 }

@@ -25,11 +25,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import com.source.player.data.db.entity.AlbumEntity
@@ -63,10 +63,10 @@ fun SearchScreen(
         navController: NavController,
         vm: SearchViewModel = hiltViewModel(),
 ) {
-    val query by vm.query.collectAsState()
-    val songResults by vm.songResults.collectAsState()
-    val albumResults by vm.albumResults.collectAsState()
-    val artistResults by vm.artistResults.collectAsState()
+    val query by vm.query.collectAsStateWithLifecycle()
+    val songResults by vm.songResults.collectAsStateWithLifecycle()
+    val albumResults by vm.albumResults.collectAsStateWithLifecycle()
+    val artistResults by vm.artistResults.collectAsStateWithLifecycle()
 
     val colors = MaterialTheme.sourceColors
     val text = MaterialTheme.sourceText
@@ -75,7 +75,7 @@ fun SearchScreen(
         // Headline
         Text(
                 text = "Find.",
-                style = text.findHeadline72.copy(fontStyle = FontStyle.Italic),
+                style = text.findHeadline72,
                 color = colors.text,
                 modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 8.dp),
         )
@@ -189,7 +189,7 @@ fun SearchScreen(
                         ) {
                             Text(
                                     "Nothing for \u201C$query\u201D.",
-                                    style = text.editorialHeadline32.copy(fontStyle = FontStyle.Italic),
+                                    style = text.editorialHeadline32,
                                     color = colors.textDim,
                             )
                         }
@@ -209,17 +209,17 @@ private fun CategoriesGrid(
 ) {
     val text = MaterialTheme.sourceText
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        categories.chunked(2).forEach { row ->
+        categories.chunked(2).forEachIndexed { rowIndex, row ->
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 row.forEachIndexed { index, tile ->
-                    val globalIndex =
-                            categories.indexOf(tile).let { if (it < 0) 0 else it }
+                    val globalIndex = rowIndex * 2 + index
+                    val tileColor = remember(tile.hue) { oklchToColor(0.28f, 0.07f, tile.hue) }
                     Box(
                             modifier =
                                     Modifier.weight(1f)
                                             .heightIn(min = 110.dp)
                                             .clip(RoundedCornerShape(4.dp))
-                                            .background(oklchToColor(0.28f, 0.07f, tile.hue))
+                                            .background(tileColor)
                                             .clickable { onClick(tile) }
                                             .padding(horizontal = 16.dp, vertical = 18.dp),
                     ) {
@@ -237,7 +237,6 @@ private fun CategoriesGrid(
                                     style =
                                             if (globalIndex % 2 == 1)
                                                     text.categoryLabel24.copy(
-                                                            fontStyle = FontStyle.Italic,
                                                     )
                                             else text.categoryLabel24,
                                     color = Color.White,

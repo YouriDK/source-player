@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
@@ -56,22 +57,15 @@ constructor(
                 withContext(Dispatchers.IO) {
                         _progress.value = ScanProgress(isScanning = true)
                         try {
-                                val blacklisted =
-                                        blacklistDao.getAllFlow().let { flow ->
-                                                // snapshot read
-                                                val result = mutableListOf<String>()
-                                                val resolver = context.contentResolver
-                                                resolver // just to reference; we'll query directly
-                                                result
-                                        }
-                                val blacklistedPaths = mutableSetOf<String>()
+                                val blacklistedPaths =
+                                        blacklistDao.getAllFlow().first().map { it.path }.toSet()
 
                                 val songs = mutableListOf<SongEntity>()
                                 val albums = mutableMapOf<Long, AlbumEntity>()
                                 val artists = mutableMapOf<Long, ArtistEntity>()
-                                // genreName keyed by songId — populated from
-                                // MediaStore.Audio.Genres
-                                val songGenreMap = mutableMapOf<Long, String>()
+                                // songId → genre, queried up front so SongEntity.genre can be
+                                // populated during the main pass
+                                val songGenreMap = buildSongGenreMap()
 
                                 val projection =
                                         arrayOf(
@@ -187,7 +181,8 @@ constructor(
                                                                 path = path,
                                                                 trackNumber = track,
                                                                 year = year,
-                                                                genre = songGenreMap[id] ?: "",
+                                                                genre = songGenreMap[id]?.name
+                                                                                ?: "",
                                                                 dateAdded = dateAdded,
                                                                 albumArtUri = artUri,
                                                                 folderPath = folder,
@@ -244,21 +239,27 @@ constructor(
                                 albumDao.upsertAll(albums.values.toList())
                                 artistDao.upsertAll(artists.values.toList())
 
-                                // Build genres from MediaStore.Audio.Genres
-                                val genreEntities = buildGenreMap(songs)
+                                // Genres derived from the up-front MediaStore genre pass
+                                val genreEntities = buildGenreEntities(songs, songGenreMap)
                                 genreDao.upsertAll(genreEntities.values.toList())
 
-                                // Online art enrichment — runs after local scan completes
-                                enrichAlbumArtFromLastFm(songs, albums)
-
                                 // Remove orphaned entries no longer in MediaStore
-                                val activeIds = songs.map { it.id }
+                                val activeIds = songs.mapTo(HashSet()) { it.id }
                                 if (activeIds.isNotEmpty()) {
-                                        songDao.deleteOrphans(activeIds)
-                                        albumDao.deleteOrphans(albums.keys.toList())
-                                        artistDao.deleteOrphans(artists.keys.toList())
+                                        deleteOrphans(songDao.getAllIds(), activeIds) {
+                                                songDao.deleteByIds(it)
+                                        }
+                                        deleteOrphans(albumDao.getAllIds(), albums.keys) {
+                                                albumDao.deleteByIds(it)
+                                        }
+                                        deleteOrphans(artistDao.getAllIds(), artists.keys) {
+                                                artistDao.deleteByIds(it)
+                                        }
                                         if (genreEntities.isNotEmpty()) {
-                                                genreDao.deleteOrphans(genreEntities.keys.toList())
+                                                deleteOrphans(
+                                                        genreDao.getAllIds(),
+                                                        genreEntities.keys
+                                                ) { genreDao.deleteByIds(it) }
                                         }
                                 }
 
@@ -268,6 +269,10 @@ constructor(
                                                 scannedCount = count,
                                                 totalCount = total
                                         )
+
+                                // Online art enrichment — after the scan is reported complete
+                                // so the UI isn't stuck in "Scanning…" through network fetches
+                                enrichAlbumArtFromLastFm(songs, albums)
                         } catch (e: SecurityException) {
                                 // Permission not granted — fail gracefully, UI shows Grant
                                 // Permission card
@@ -282,14 +287,16 @@ constructor(
                         }
                 }
 
-        /**
-         * Queries MediaStore.Audio.Genres and maps genre id → GenreEntity with correct song counts.
-         * Returns a map keyed by genre id for easy orphan deletion.
-         */
-        private fun buildGenreMap(songs: List<SongEntity>): Map<Long, GenreEntity> {
-                val genreEntities = mutableMapOf<Long, GenreEntity>()
+        private data class GenreRef(val id: Long, val name: String)
 
-                // Step 1: get all genres
+        /**
+         * Queries MediaStore.Audio.Genres once and maps songId → genre, so the main scan
+         * pass can populate SongEntity.genre and genre counts can be derived without a
+         * second per-genre query pass.
+         */
+        private fun buildSongGenreMap(): Map<Long, GenreRef> {
+                val songGenres = mutableMapOf<Long, GenreRef>()
+
                 val genreCursor =
                         context.contentResolver.query(
                                 MediaStore.Audio.Genres.EXTERNAL_CONTENT_URI,
@@ -298,7 +305,7 @@ constructor(
                                 null,
                                 "${MediaStore.Audio.Genres.NAME} ASC",
                         )
-                                ?: return emptyMap()
+                                ?: return songGenres
 
                 // Build id→name map
                 val genreNames = mutableMapOf<Long, String>()
@@ -313,46 +320,59 @@ constructor(
                         }
                 }
 
-                // Step 2: for each genre, query which songs belong to it and count them
-                val songIdSet = songs.map { it.id }.toSet()
                 for ((gid, name) in genreNames) {
                         val memberUri =
                                 MediaStore.Audio.Genres.Members.getContentUri("external", gid)
-                        val memberCursor =
-                                context.contentResolver.query(
+                        context.contentResolver
+                                .query(
                                         memberUri,
                                         arrayOf(MediaStore.Audio.Genres.Members.AUDIO_ID),
                                         null,
                                         null,
                                         null,
                                 )
-                                        ?: continue
-
-                        var count = 0
-                        memberCursor.use { mc ->
-                                val audioIdCol =
-                                        mc.getColumnIndexOrThrow(
-                                                MediaStore.Audio.Genres.Members.AUDIO_ID
-                                        )
-                                while (mc.moveToNext()) {
-                                        val sid = mc.getLong(audioIdCol)
-                                        if (sid in songIdSet) count++
+                                ?.use { mc ->
+                                        val audioIdCol =
+                                                mc.getColumnIndexOrThrow(
+                                                        MediaStore.Audio.Genres.Members.AUDIO_ID
+                                                )
+                                        while (mc.moveToNext()) {
+                                                songGenres[mc.getLong(audioIdCol)] =
+                                                        GenreRef(gid, name)
+                                        }
                                 }
-                        }
-
-                        // Only include genres that have at least one song in our library
-                        if (count > 0) {
-                                genreEntities[gid] =
-                                        GenreEntity(
-                                                id = gid,
-                                                name = name,
-                                                songCount = count,
-                                        )
-                        }
                 }
+                return songGenres
+        }
 
+        /** Counts scanned songs per genre. Only genres with at least one song are kept. */
+        private fun buildGenreEntities(
+                songs: List<SongEntity>,
+                songGenres: Map<Long, GenreRef>,
+        ): Map<Long, GenreEntity> {
+                val genreEntities = mutableMapOf<Long, GenreEntity>()
+                for (song in songs) {
+                        val ref = songGenres[song.id] ?: continue
+                        val existing = genreEntities[ref.id]
+                        genreEntities[ref.id] =
+                                existing?.copy(songCount = existing.songCount + 1)
+                                        ?: GenreEntity(id = ref.id, name = ref.name, songCount = 1)
+                }
                 android.util.Log.d("MediaScanner", "Built ${genreEntities.size} genres")
                 return genreEntities
+        }
+
+        /**
+         * SQLite caps bound variables (999 on API 26-29), so `NOT IN (:activeIds)` throws on
+         * large libraries. Compute the orphan set in memory and delete via chunked IN lists.
+         */
+        private suspend fun deleteOrphans(
+                existingIds: List<Long>,
+                activeIds: Set<Long>,
+                deleteByIds: suspend (List<Long>) -> Unit,
+        ) {
+                val orphans = existingIds.filterNot { it in activeIds }
+                orphans.chunked(500).forEach { deleteByIds(it) }
         }
 
         /**
@@ -366,6 +386,7 @@ constructor(
         ) {
                 val policy = prefs.artDownloadPolicy.firstOrNull() ?: "NEVER"
                 if (policy == "NEVER") return
+                if (policy == "WIFI" && !isOnUnmeteredNetwork()) return
 
                 // Determine albums that have no valid local art by probing ContentResolver
                 val resolver = context.contentResolver
@@ -382,24 +403,41 @@ constructor(
                                 }
                         }
 
+                val fetched = mutableMapOf<Long, String>() // albumId → art URL
                 for (album in albumsNeedingArt) {
                         val artist = album.artist.takeIf { it != "<Unknown>" } ?: continue
                         val title = album.title.takeIf { it != "<Unknown>" } ?: continue
 
                         val url = lastFm.fetchAlbumArt(artist, title) ?: continue
-
-                        // Update all songs that belong to this album
-                        songs.filter { it.albumId == album.id }.forEach { song ->
-                                songDao.updateArtUri(song.id, url)
-                        }
-
-                        // Update the album row itself
-                        albumDao.upsertAll(listOf(album.copy(artUri = url)))
+                        fetched[album.id] = url
 
                         android.util.Log.d(
                                 "MediaScanner",
                                 "Fetched Last.fm art for \"$title\" by $artist"
                         )
                 }
+                if (fetched.isEmpty()) return
+
+                // Two batched writes (one per table) → two Room invalidations total,
+                // instead of one per song plus one per album. Every live library Flow
+                // re-queries on each invalidation, so this is what keeps a post-scan
+                // enrichment from turning into hundreds of full-library re-emissions.
+                songDao.updateAlbumArtBatch(fetched)
+                albumDao.upsertAll(
+                        albumsNeedingArt.mapNotNull { album ->
+                                fetched[album.id]?.let { album.copy(artUri = it) }
+                        }
+                )
+        }
+
+        private fun isOnUnmeteredNetwork(): Boolean {
+                val cm =
+                        context.getSystemService(Context.CONNECTIVITY_SERVICE)
+                                as? android.net.ConnectivityManager
+                                ?: return false
+                val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
+                return caps.hasCapability(
+                        android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED
+                )
         }
 }

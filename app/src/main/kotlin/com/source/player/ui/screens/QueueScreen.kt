@@ -10,15 +10,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.source.player.ui.components.Hairline
 import com.source.player.ui.components.MonoSize
@@ -30,23 +30,43 @@ import com.source.player.ui.viewmodel.PlayerViewModel
 
 /**
  * Queue — LP back-cover metaphor. Focused secondary view, no mini-player, no
- * tab bar. Current track is accent-tinted and italicised.
+ * tab bar. Current track is accent-tinted.
  */
 @Composable
 fun QueueScreen(
         @Suppress("unused") navController: NavController,
         vm: PlayerViewModel = hiltViewModel(),
 ) {
-    val queue by vm.queueItems.collectAsState()
-    val currentIndex by vm.queueIndex.collectAsState()
+    val queue by vm.queueItems.collectAsStateWithLifecycle()
+    val currentIndex by vm.queueIndex.collectAsStateWithLifecycle()
 
     val colors = MaterialTheme.sourceColors
     val text = MaterialTheme.sourceText
 
+    // Occurrence-stable keys: the same mediaId can appear multiple times in the
+    // queue, so each duplicate gets a "#n" suffix by occurrence order. Key and
+    // item are fused into ONE remembered list — LazyColumn measure can run
+    // between recompositions (e.g. during the auto-scroll animation below), and
+    // a separate keys list let it observe the row count of one queue snapshot
+    // with the keys of another (IndexOutOfBounds crash on queue open).
+    val keyedQueue =
+            remember(queue) {
+                val seen = HashMap<String, Int>()
+                queue.map { item ->
+                    val occurrence = (seen[item.mediaId] ?: 0) + 1
+                    seen[item.mediaId] = occurrence
+                    "${item.mediaId}#$occurrence" to item
+                }
+            }
+
     val listState = rememberLazyListState()
-    LaunchedEffect(currentIndex, queue.size) {
-        if (currentIndex in queue.indices) {
-            listState.animateScrollToItem(currentIndex)
+    LaunchedEffect(currentIndex, keyedQueue.size) {
+        if (keyedQueue.isNotEmpty()) {
+            // runCatching: the scroll animation races queue swaps by design;
+            // a cancelled/invalid scroll must never take the screen down.
+            runCatching {
+                listState.animateScrollToItem(currentIndex.coerceIn(0, keyedQueue.lastIndex))
+            }
         }
     }
 
@@ -63,7 +83,8 @@ fun QueueScreen(
         }
 
         LazyColumn(Modifier.fillMaxSize(), state = listState) {
-            itemsIndexed(queue, key = { i, item -> "${item.mediaId}_$i" }) { i, item ->
+            itemsIndexed(keyedQueue, key = { _, entry -> entry.first }) { i, entry ->
+                val item = entry.second
                 val isCurrent = i == currentIndex
                 val isPlayed = i < currentIndex
                 Hairline(modifier = Modifier.padding(horizontal = 24.dp))
@@ -93,10 +114,7 @@ fun QueueScreen(
                                         if (isCurrent) " \u00B7" else ""
                         Text(
                                 text = titleText,
-                                style =
-                                        if (isCurrent)
-                                                text.trackTitle22.copy(fontStyle = FontStyle.Italic)
-                                        else text.trackTitle22,
+                                style = text.trackTitle22,
                                 color = if (isCurrent) colors.accent else colors.text,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -131,7 +149,7 @@ fun QueueScreen(
                         )
                     }
                 }
-                if (i == queue.lastIndex) {
+                if (i == keyedQueue.lastIndex) {
                     Hairline(modifier = Modifier.padding(horizontal = 24.dp))
                 }
             }
