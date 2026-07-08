@@ -17,7 +17,7 @@ import com.source.player.data.db.entity.*
                         BlacklistedFolderEntity::class,
                 ],
         version = 2,
-        exportSchema = false,
+        exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
         abstract fun songDao(): SongDao

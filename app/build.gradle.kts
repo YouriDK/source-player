@@ -7,6 +7,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.room)
 }
 
 // Load secrets from local.properties (git-ignored)
@@ -93,8 +94,10 @@ kotlin {
     }
 }
 
-// Room schema export is disabled to avoid KSP path-with-spaces issue on this machine.
-// Re-enable via ksp { arg("room.schemaLocation", ...) } from a path without spaces.
+// Room schema export via the Room Gradle plugin — unlike the raw KSP arg, it
+// handles the space in this project's path. Exported JSON under app/schemas/ is
+// version-controlled and is the baseline for writing/validating migrations.
+room { schemaDirectory("$projectDir/schemas") }
 
 dependencies {
     // Core

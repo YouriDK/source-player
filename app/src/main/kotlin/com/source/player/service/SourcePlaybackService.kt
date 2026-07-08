@@ -19,7 +19,10 @@ import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * SourcePlaybackService — owns both [ExoPlayer] (local) and [CastPlayer] (Chromecast).
@@ -49,6 +52,8 @@ class SourcePlaybackService : MediaSessionService() {
     // Source-of-truth queue with original file:// URIs (never HTTP-converted)
     private var originalQueue: List<MediaItem> = emptyList()
     private var originalQueueIndex: Int = 0
+    /** In-flight Cast handover; cancelled if the session flips again mid-transfer. */
+    private var transferJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -129,29 +134,45 @@ class SourcePlaybackService : MediaSessionService() {
 
         current.stop()
 
-        val items =
-                if (target === castWrapped) {
-                    // Chromecast needs HTTP URLs — start server and convert
-                    localAudioHttpServer.start()
-                    originalQueue.map { item ->
-                        val uri = item.localConfiguration?.uri?.toString() ?: return@map item
-                        val httpUrl =
-                                if (uri.startsWith("file://") || uri.startsWith("/")) {
-                                    val path = uri.removePrefix("file://")
-                                    localAudioHttpServer.getUrl(path) ?: return@map item
-                                } else uri
-                        item.buildUpon().setUri(httpUrl).build()
+        fun applyTransfer(items: List<MediaItem>) {
+            target.setMediaItems(items, itemIndex.coerceAtLeast(0), positionMs.coerceAtLeast(0))
+            target.playWhenReady = playWhenReady
+            target.prepare()
+            mediaSession?.setPlayer(target)
+        }
+
+        transferJob?.cancel()
+        if (target === castWrapped) {
+            // Chromecast needs HTTP URLs. Server startup binds a socket and the URL
+            // mapping walks the entire queue — doing that on the main thread froze
+            // the app for large queues the instant a Cast session connected.
+            val queueSnapshot = originalQueue
+            transferJob =
+                    volumeScope.launch {
+                        val items =
+                                withContext(Dispatchers.IO) {
+                                    localAudioHttpServer.start()
+                                    queueSnapshot.map { item ->
+                                        val uri =
+                                                item.localConfiguration?.uri?.toString()
+                                                        ?: return@map item
+                                        val httpUrl =
+                                                if (uri.startsWith("file://") ||
+                                                                uri.startsWith("/")
+                                                ) {
+                                                    val path = uri.removePrefix("file://")
+                                                    localAudioHttpServer.getUrl(path)
+                                                            ?: return@map item
+                                                } else uri
+                                        item.buildUpon().setUri(httpUrl).build()
+                                    }
+                                }
+                        applyTransfer(items)
                     }
-                } else {
-                    // Back to ExoPlayer: restore original file:// URIs
-                    originalQueue
-                }
-
-        target.setMediaItems(items, itemIndex.coerceAtLeast(0), positionMs.coerceAtLeast(0))
-        target.playWhenReady = playWhenReady
-        target.prepare()
-
-        mediaSession?.setPlayer(target)
+        } else {
+            // Back to ExoPlayer: restore original file:// URIs — no IO involved.
+            applyTransfer(originalQueue)
+        }
     }
 
     // ---- MediaSessionService ----

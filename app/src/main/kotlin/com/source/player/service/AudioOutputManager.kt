@@ -173,11 +173,11 @@ constructor(
         }
 
         audioManager.registerAudioDeviceCallback(audioDeviceCallback, mainHandler)
-        mediaRouter.addCallback(
-                routeSelector,
-                mediaRouterCallback,
-                MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY,
-        )
+        // Passive registration only: we still hear about route changes, but we don't
+        // force continuous mDNS/Cast discovery scanning for the app's whole lifetime.
+        // Active discovery runs only while the output picker is open — see
+        // [setActiveDiscovery].
+        mediaRouter.addCallback(routeSelector, mediaRouterCallback)
         // Start Sonos discovery and reactively update when devices are found
         sonosManager.discover()
         scope.launch {
@@ -194,6 +194,25 @@ constructor(
     }
 
     // ---- Public API ----
+
+    /**
+     * Enables/disables ACTIVE route discovery (mDNS/Cast network scanning). Keeping it
+     * on permanently keeps the Wi-Fi radio and Play Services busy; the UI turns it on
+     * while the output picker is visible and off when it closes. Re-adding the same
+     * callback updates its flags in place. Must be called from the main thread.
+     */
+    fun setActiveDiscovery(active: Boolean) {
+        if (active) {
+            mediaRouter.addCallback(
+                    routeSelector,
+                    mediaRouterCallback,
+                    MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY,
+            )
+            refreshDevices()
+        } else {
+            mediaRouter.addCallback(routeSelector, mediaRouterCallback)
+        }
+    }
 
     /**
      * Switch audio output to the device identified by [deviceId].

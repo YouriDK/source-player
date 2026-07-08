@@ -54,6 +54,9 @@ constructor(
         selectDevice(device)
     }
 
+    /** Active route discovery is on only while the output picker sheet is visible. */
+    fun setActiveDiscovery(active: Boolean) = audioOutputManager.setActiveDiscovery(active)
+
     fun resetToDefault() {
         if (sonosManager.activeDevice.value != null) {
             playbackController.deactivateSonos()
