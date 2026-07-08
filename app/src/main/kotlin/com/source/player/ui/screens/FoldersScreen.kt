@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.source.player.data.db.entity.SongEntity
 import com.source.player.ui.components.Hairline
@@ -48,12 +49,12 @@ fun FoldersScreen(
         navController: NavController,
         vm: FoldersViewModel = hiltViewModel(),
 ) {
-        val breadcrumbs by vm.breadcrumbs.collectAsState()
-        val subFolders by vm.subFolders.collectAsState()
-        val songsInFolder by vm.songsInFolder.collectAsState()
-        val totalSongs by vm.totalSongsCount.collectAsState()
-        val currentPath by vm.currentPath.collectAsState()
-        val playlists by vm.playlists.collectAsState()
+        val breadcrumbs by vm.breadcrumbs.collectAsStateWithLifecycle()
+        val subFolders by vm.subFolders.collectAsStateWithLifecycle()
+        val songsInFolder by vm.songsInFolder.collectAsStateWithLifecycle()
+        val totalSongs by vm.totalSongsCount.collectAsStateWithLifecycle()
+        val currentPath by vm.currentPath.collectAsStateWithLifecycle()
+        val playlists by vm.playlists.collectAsStateWithLifecycle()
 
         var showPlaylistSheet by remember { mutableStateOf(false) }
         var showNewPlaylistDialog by remember { mutableStateOf(false) }
@@ -284,7 +285,7 @@ fun FoldersScreen(
                                 )
                                 Hairline(modifier = Modifier.padding(vertical = 8.dp))
                                 LazyColumn {
-                                        items(playlists) { playlist ->
+                                        items(playlists, key = { it.id }) { playlist ->
                                                 ListItem(
                                                         headlineContent = {
                                                                 Text(
@@ -390,7 +391,7 @@ private fun FolderRow(folder: FolderItem, onClick: () -> Unit) {
                 Column(modifier = Modifier.weight(1f)) {
                         Text(
                                 folder.name,
-                                style = text.trackTitle22,
+                                style = text.folderName17,
                                 color = colors.text,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -413,7 +414,7 @@ private fun FolderRow(folder: FolderItem, onClick: () -> Unit) {
                 }
                 Text(
                         text = "→",
-                        style = text.trackTitle22,
+                        style = text.folderName17,
                         color = colors.textMute,
                 )
         }

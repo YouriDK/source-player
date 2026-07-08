@@ -58,6 +58,11 @@ interface SongDao {
   @Query("SELECT * FROM songs WHERE dateAdded >= :since ORDER BY dateAdded DESC")
   fun getAddedSince(since: Long): Flow<List<SongEntity>>
 
+  @Query("SELECT * FROM songs ORDER BY dateAdded DESC LIMIT :limit")
+  fun getRecentlyAdded(limit: Int): Flow<List<SongEntity>>
+
+  @Query("SELECT COUNT(*) FROM songs") fun countFlow(): Flow<Int>
+
   @Query("SELECT * FROM songs WHERE folderPath NOT IN (SELECT path FROM blacklisted_folders)")
   fun getAllExcludingBlacklisted(): Flow<List<SongEntity>>
 
@@ -68,8 +73,18 @@ interface SongDao {
   @Query("UPDATE songs SET albumArtUri = :uri WHERE id = :id")
   suspend fun updateArtUri(id: Long, uri: String)
 
-  @Query("DELETE FROM songs WHERE id NOT IN (:activeIds)")
-  suspend fun deleteOrphans(activeIds: List<Long>)
+  @Query("UPDATE songs SET albumArtUri = :uri WHERE albumId = :albumId")
+  suspend fun updateArtUriForAlbum(albumId: Long, uri: String)
+
+  /** One transaction → one invalidation, instead of one per updated song. */
+  @Transaction
+  suspend fun updateAlbumArtBatch(artByAlbumId: Map<Long, String>) {
+    for ((albumId, uri) in artByAlbumId) updateArtUriForAlbum(albumId, uri)
+  }
+
+  @Query("SELECT id FROM songs") suspend fun getAllIds(): List<Long>
+
+  @Query("DELETE FROM songs WHERE id IN (:ids)") suspend fun deleteByIds(ids: List<Long>)
 
   @Query("DELETE FROM songs") suspend fun deleteAll()
 
@@ -83,6 +98,9 @@ interface AlbumDao {
 
   @Query("SELECT * FROM albums WHERE id = :id LIMIT 1") suspend fun getById(id: Long): AlbumEntity?
 
+  @Query("SELECT * FROM albums WHERE id IN (:ids)")
+  suspend fun getByIds(ids: List<Long>): List<AlbumEntity>
+
   @Query(
           "SELECT * FROM albums WHERE title LIKE '%' || :q || '%' OR artist LIKE '%' || :q || '%' LIMIT 20"
   )
@@ -90,8 +108,9 @@ interface AlbumDao {
 
   @Upsert suspend fun upsertAll(albums: List<AlbumEntity>)
 
-  @Query("DELETE FROM albums WHERE id NOT IN (:activeIds)")
-  suspend fun deleteOrphans(activeIds: List<Long>)
+  @Query("SELECT id FROM albums") suspend fun getAllIds(): List<Long>
+
+  @Query("DELETE FROM albums WHERE id IN (:ids)") suspend fun deleteByIds(ids: List<Long>)
 }
 
 // ---- Artists ----
@@ -107,8 +126,9 @@ interface ArtistDao {
 
   @Upsert suspend fun upsertAll(artists: List<ArtistEntity>)
 
-  @Query("DELETE FROM artists WHERE id NOT IN (:activeIds)")
-  suspend fun deleteOrphans(activeIds: List<Long>)
+  @Query("SELECT id FROM artists") suspend fun getAllIds(): List<Long>
+
+  @Query("DELETE FROM artists WHERE id IN (:ids)") suspend fun deleteByIds(ids: List<Long>)
 }
 
 // ---- Genres ----
@@ -118,8 +138,9 @@ interface GenreDao {
 
   @Upsert suspend fun upsertAll(genres: List<GenreEntity>)
 
-  @Query("DELETE FROM genres WHERE id NOT IN (:activeIds)")
-  suspend fun deleteOrphans(activeIds: List<Long>)
+  @Query("SELECT id FROM genres") suspend fun getAllIds(): List<Long>
+
+  @Query("DELETE FROM genres WHERE id IN (:ids)") suspend fun deleteByIds(ids: List<Long>)
 }
 
 // ---- Playlists ----
@@ -145,6 +166,10 @@ interface PlaylistDao {
 
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun addSongToPlaylist(entry: PlaylistSongEntity)
+
+  /** Single transaction/invalidation for multi-song adds. */
+  @Insert(onConflict = OnConflictStrategy.REPLACE)
+  suspend fun addSongsToPlaylist(entries: List<PlaylistSongEntity>)
 
   @Query("DELETE FROM playlist_songs WHERE playlistId = :playlistId AND songId = :songId")
   suspend fun removeSongFromPlaylist(playlistId: Long, songId: Long)

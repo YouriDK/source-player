@@ -17,39 +17,33 @@ constructor(
         private val controller: PlaybackController,
 ) : ViewModel() {
 
-        val currentSong =
-                controller.currentSong.stateIn(viewModelScope, SharingStarted.Eagerly, null)
-        val isPlaying = controller.isPlaying.stateIn(viewModelScope, SharingStarted.Eagerly, false)
-        val positionMs = controller.positionMs.stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
-        val durationMs = controller.durationMs.stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
+        // WhileSubscribed: this ViewModel is instantiated per destination (Library, Player,
+        // Queue, MiniPlayerBar) — Eager sharing kept every instance's collectors (including
+        // the 300ms position stream) alive for back-stack entries that weren't even visible.
+        private val sharing = SharingStarted.WhileSubscribed(5_000)
+
+        val currentSong = controller.currentSong.stateIn(viewModelScope, sharing, null)
+        val isPlaying = controller.isPlaying.stateIn(viewModelScope, sharing, false)
+        val positionMs = controller.positionMs.stateIn(viewModelScope, sharing, 0L)
+        val durationMs = controller.durationMs.stateIn(viewModelScope, sharing, 0L)
         val repeatMode =
-                controller.repeatMode.stateIn(
-                        viewModelScope,
-                        SharingStarted.Eagerly,
-                        Player.REPEAT_MODE_OFF
-                )
-        val shuffleEnabled =
-                controller.shuffleEnabled.stateIn(viewModelScope, SharingStarted.Eagerly, false)
-        val queueItems =
-                controller.queueItems.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-        val queueIndex = controller.queueIndex.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+                controller.repeatMode.stateIn(viewModelScope, sharing, Player.REPEAT_MODE_OFF)
+        val shuffleEnabled = controller.shuffleEnabled.stateIn(viewModelScope, sharing, false)
+        val queueItems = controller.queueItems.stateIn(viewModelScope, sharing, emptyList())
+        val queueIndex = controller.queueIndex.stateIn(viewModelScope, sharing, 0)
 
         /** Room DB song ID extracted from the current MediaItem's mediaId field */
         val currentSongId =
                 controller
                         .currentSong
                         .map { it?.mediaId?.toLongOrNull() }
-                        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+                        .stateIn(viewModelScope, sharing, null)
 
-        val playbackError =
-                controller.playbackError.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+        val playbackError = controller.playbackError.stateIn(viewModelScope, sharing, null)
 
         val sonosActive =
-                controller
-                        .sonosActive
-                        .map { it != null }
-                        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
-        val sonosVolume = controller.sonosVolume.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+                controller.sonosActive.map { it != null }.stateIn(viewModelScope, sharing, false)
+        val sonosVolume = controller.sonosVolume.stateIn(viewModelScope, sharing, null)
 
         fun setSonosVolume(level: Int) = controller.setSonosVolume(level)
 

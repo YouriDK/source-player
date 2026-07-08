@@ -34,13 +34,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import com.source.player.data.db.entity.SongEntity
@@ -64,11 +64,11 @@ fun HomeScreen(
         vm: HomeViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
-    val currentSong by vm.currentSong.collectAsState()
-    val songCount by vm.songCount.collectAsState()
-    val scanProgress by vm.scanProgress.collectAsState()
-    val quickPicks by vm.quickPicks.collectAsState()
-    val recentlyAdded by vm.recentlyAdded.collectAsState()
+    val currentSong by vm.currentSong.collectAsStateWithLifecycle()
+    val songCount by vm.songCount.collectAsStateWithLifecycle()
+    val scanProgress by vm.scanProgress.collectAsStateWithLifecycle()
+    val quickPicks by vm.quickPicks.collectAsStateWithLifecycle()
+    val recentlyAdded by vm.recentlyAdded.collectAsStateWithLifecycle()
 
     val permission =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
@@ -121,9 +121,13 @@ fun HomeScreen(
         // Feature track -------------------------------------------------
         item {
             if (featureSong != null) {
+                val featureIndex =
+                        remember(quickPicks, featureSong) {
+                            quickPicks.indexOf(featureSong).coerceAtLeast(0)
+                        }
                 FeatureTrack(
                         song = featureSong,
-                        index = quickPicks.indexOf(featureSong).coerceAtLeast(0),
+                        index = featureIndex,
                         onPlay = { vm.playSongs(listOf(featureSong)) },
                         onOpen = { navController.navigate(Routes.PLAYER) },
                 )
@@ -160,7 +164,7 @@ fun HomeScreen(
                         contentPadding = PaddingValues(horizontal = 24.dp),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    items(rotationAlbums) { song ->
+                    items(rotationAlbums, key = { it.id }) { song ->
                         RotationTile(
                                 song = song,
                                 onClick = {
@@ -183,7 +187,7 @@ fun HomeScreen(
                         modifier = Modifier.padding(horizontal = 24.dp, vertical = 14.dp),
                 )
             }
-            itemsIndexed(lateListens) { index, song ->
+            itemsIndexed(lateListens, key = { _, s -> s.id }) { index, song ->
                 LateListenRow(
                         position = index + 1,
                         song = song,
@@ -246,7 +250,7 @@ private fun FeatureTrack(song: SongEntity, index: Int, onPlay: () -> Unit, onOpe
         Spacer(Modifier.height(10.dp))
         Text(
                 text = song.title,
-                style = text.homeFeature96.copy(fontStyle = FontStyle.Italic),
+                style = text.homeFeature96,
                 color = colors.text,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -350,7 +354,7 @@ private fun EditorialCard(song: SongEntity, onClick: () -> Unit, modifier: Modif
 /** Album name in italic, the word "revisited" in roman, period. */
 private fun buildAlbumHeadline(album: String, artist: String): AnnotatedString =
         buildAnnotatedString {
-            withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
+            withStyle(SpanStyle()) {
                 append(album.ifBlank { artist })
             }
             append(", revisited.")

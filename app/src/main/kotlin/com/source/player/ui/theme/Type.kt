@@ -17,13 +17,6 @@ import com.source.player.R
 
 // ─── Font families (bundled in res/font/) ─────────────────────────────────
 
-/** Editorial display serif — track titles, section headlines, album names. */
-val InstrumentSerif =
-        FontFamily(
-                Font(R.font.instrument_serif_regular, FontWeight.Normal, FontStyle.Normal),
-                Font(R.font.instrument_serif_italic, FontWeight.Normal, FontStyle.Italic),
-        )
-
 /** Body / UI sans — labels, buttons, nav, metadata. */
 val Geist =
         FontFamily(
@@ -64,11 +57,36 @@ val GeistMono =
                 ),
         )
 
+/** App-wide sans — titles, headlines, folder names. Replaced Instrument Serif. */
+val Manrope =
+        FontFamily(
+                Font(
+                        R.font.manrope_variable,
+                        FontWeight.Normal,
+                        variationSettings = FontVariation.Settings(FontVariation.weight(400)),
+                ),
+                Font(
+                        R.font.manrope_variable,
+                        FontWeight.Medium,
+                        variationSettings = FontVariation.Settings(FontVariation.weight(500)),
+                ),
+                Font(
+                        R.font.manrope_variable,
+                        FontWeight.SemiBold,
+                        variationSettings = FontVariation.Settings(FontVariation.weight(600)),
+                ),
+                Font(
+                        R.font.manrope_variable,
+                        FontWeight.Bold,
+                        variationSettings = FontVariation.Settings(FontVariation.weight(700)),
+                ),
+        )
+
 // ─── Vinyl named type scale ────────────────────────────────────────────────
 
 @Immutable
 data class SourceTextStyles(
-        // Display — serif italic, the editorial voice
+        // Display — Manrope SemiBold, the headline voice
         val heroTitle140: TextStyle,
         val homeFeature96: TextStyle,
         val findHeadline72: TextStyle,
@@ -81,6 +99,10 @@ data class SourceTextStyles(
         val trackTitle22: TextStyle,
         val libraryRow19: TextStyle,
         val rotationTitle18: TextStyle,
+        // Folders — quiet geometric sans, not the editorial serif
+        val folderName17: TextStyle,
+        // Player hero title — same sans voice, auto-fits down from 56sp
+        val playerTitle56: TextStyle,
         // Sans — workhorse
         val bodyLarge15: TextStyle,
         val bodyMedium14: TextStyle,
@@ -97,93 +119,114 @@ data class SourceTextStyles(
                         SourceTextStyles(
                                 heroTitle140 =
                                         TextStyle(
-                                                fontFamily = InstrumentSerif,
-                                                fontStyle = FontStyle.Italic,
-                                                fontWeight = FontWeight.Normal,
+                                                fontFamily = Manrope,
+                                                fontWeight = FontWeight.SemiBold,
                                                 fontSize = 140.sp,
                                                 lineHeight = 0.82.em,
                                                 letterSpacing = (-0.036).em, // ≈ -5/140
                                         ),
                                 homeFeature96 =
                                         TextStyle(
-                                                fontFamily = InstrumentSerif,
-                                                fontStyle = FontStyle.Italic,
+                                                fontFamily = Manrope,
+                                                fontWeight = FontWeight.SemiBold,
                                                 fontSize = 96.sp,
                                                 lineHeight = 0.85.em,
                                                 letterSpacing = (-0.036).em,
                                         ),
                                 findHeadline72 =
                                         TextStyle(
-                                                fontFamily = InstrumentSerif,
-                                                fontStyle = FontStyle.Italic,
+                                                fontFamily = Manrope,
+                                                fontWeight = FontWeight.SemiBold,
                                                 fontSize = 72.sp,
                                                 lineHeight = 0.90.em,
                                                 letterSpacing = (-0.028).em,
                                         ),
                                 libraryLetter64 =
                                         TextStyle(
-                                                fontFamily = InstrumentSerif,
-                                                fontStyle = FontStyle.Italic,
+                                                fontFamily = Manrope,
+                                                fontWeight = FontWeight.SemiBold,
                                                 fontSize = 64.sp,
                                                 lineHeight = 1.0.em,
                                                 letterSpacing = (-0.025).em,
                                         ),
                                 queueHeadline56 =
                                         TextStyle(
-                                                fontFamily = InstrumentSerif,
-                                                fontStyle = FontStyle.Italic,
+                                                fontFamily = Manrope,
+                                                fontWeight = FontWeight.SemiBold,
                                                 fontSize = 56.sp,
                                                 lineHeight = 0.90.em,
                                                 letterSpacing = (-0.025).em,
                                         ),
                                 editorialHeadline32 =
                                         TextStyle(
-                                                fontFamily = InstrumentSerif,
+                                                fontFamily = Manrope,
+                                                fontWeight = FontWeight.SemiBold,
                                                 fontSize = 32.sp,
                                                 lineHeight = 1.05.em,
                                                 letterSpacing = (-0.019).em,
                                         ),
                                 masthead30 =
                                         TextStyle(
-                                                fontFamily = InstrumentSerif,
+                                                fontFamily = Manrope,
+                                                fontWeight = FontWeight.SemiBold,
                                                 fontSize = 30.sp,
                                                 lineHeight = 1.0.em,
                                                 letterSpacing = (-0.027).em,
                                         ),
                                 categoryLabel26 =
                                         TextStyle(
-                                                fontFamily = InstrumentSerif,
+                                                fontFamily = Manrope,
+                                                fontWeight = FontWeight.SemiBold,
                                                 fontSize = 26.sp,
                                                 letterSpacing = (-0.015).em,
                                         ),
                                 categoryLabel24 =
                                         TextStyle(
-                                                fontFamily = InstrumentSerif,
+                                                fontFamily = Manrope,
+                                                fontWeight = FontWeight.SemiBold,
                                                 fontSize = 24.sp,
                                                 lineHeight = 1.05.em,
                                                 letterSpacing = (-0.012).em,
                                         ),
                                 trackTitle22 =
                                         TextStyle(
-                                                fontFamily = InstrumentSerif,
+                                                fontFamily = Manrope,
+                                                fontWeight = FontWeight.Medium,
                                                 fontSize = 22.sp,
                                                 lineHeight = 1.1.em,
                                                 letterSpacing = (-0.014).em,
                                         ),
                                 libraryRow19 =
                                         TextStyle(
-                                                fontFamily = InstrumentSerif,
+                                                fontFamily = Manrope,
+                                                fontWeight = FontWeight.Medium,
                                                 fontSize = 19.sp,
                                                 lineHeight = 1.15.em,
                                                 letterSpacing = (-0.010).em,
                                         ),
                                 rotationTitle18 =
                                         TextStyle(
-                                                fontFamily = InstrumentSerif,
-                                                fontStyle = FontStyle.Italic,
+                                                fontFamily = Manrope,
+                                                fontWeight = FontWeight.Medium,
                                                 fontSize = 18.sp,
                                                 lineHeight = 1.15.em,
                                                 letterSpacing = (-0.011).em,
+                                        ),
+                                folderName17 =
+                                        TextStyle(
+                                                fontFamily = Manrope,
+                                                fontWeight = FontWeight.Medium,
+                                                fontSize = 17.5.sp,
+                                                lineHeight = 1.2.em,
+                                                letterSpacing = (-0.005).em,
+                                        ),
+                                playerTitle56 =
+                                        TextStyle(
+                                                fontFamily = Manrope,
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontSize = 56.sp,
+                                                lineHeight = 1.05.em,
+                                                letterSpacing = (-0.015).em,
                                         ),
                                 bodyLarge15 =
                                         TextStyle(
@@ -262,26 +305,30 @@ fun buildTypography(fontFamily: FontFamily = Geist) =
         Typography(
                 displayLarge =
                         TextStyle(
-                                fontFamily = InstrumentSerif,
+                                fontFamily = Manrope,
+                                                fontWeight = FontWeight.SemiBold,
                                 fontSize = 32.sp,
                                 lineHeight = 40.sp,
                                 letterSpacing = (-0.6).sp,
                         ),
                 displayMedium =
                         TextStyle(
-                                fontFamily = InstrumentSerif,
+                                fontFamily = Manrope,
+                                                fontWeight = FontWeight.SemiBold,
                                 fontSize = 28.sp,
                                 lineHeight = 36.sp,
                         ),
                 headlineLarge =
                         TextStyle(
-                                fontFamily = InstrumentSerif,
+                                fontFamily = Manrope,
+                                                fontWeight = FontWeight.SemiBold,
                                 fontSize = 22.sp,
                                 lineHeight = 28.sp,
                         ),
                 headlineMedium =
                         TextStyle(
-                                fontFamily = InstrumentSerif,
+                                fontFamily = Manrope,
+                                                fontWeight = FontWeight.SemiBold,
                                 fontSize = 18.sp,
                                 lineHeight = 24.sp,
                         ),

@@ -9,6 +9,7 @@ import com.source.player.data.db.entity.*
 import com.source.player.service.PlaybackController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.*
 
@@ -33,41 +34,27 @@ constructor(
           debouncedQuery
                   .flatMapLatest { q ->
                     if (q.isBlank()) flowOf(emptyList())
-                    else
-                            songDao.getAllFlow().map { songs ->
-                              songs
-                                      .filter {
-                                        it.title.contains(q, true) || it.artist.contains(q, true)
-                                      }
-                                      .take(30)
-                            }
+                    else flow { emit(songDao.search(q)) }
                   }
+                  .flowOn(Dispatchers.Default)
                   .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
   val albumResults: StateFlow<List<AlbumEntity>> =
           debouncedQuery
                   .flatMapLatest { q ->
                     if (q.isBlank()) flowOf(emptyList())
-                    else
-                            albumDao.getAllFlow().map { albums ->
-                              albums
-                                      .filter {
-                                        it.title.contains(q, true) || it.artist.contains(q, true)
-                                      }
-                                      .take(20)
-                            }
+                    else flow { emit(albumDao.search(q)) }
                   }
+                  .flowOn(Dispatchers.Default)
                   .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
   val artistResults: StateFlow<List<ArtistEntity>> =
           debouncedQuery
                   .flatMapLatest { q ->
                     if (q.isBlank()) flowOf(emptyList())
-                    else
-                            artistDao.getAllFlow().map { artists ->
-                              artists.filter { it.name.contains(q, true) }.take(20)
-                            }
+                    else flow { emit(artistDao.search(q)) }
                   }
+                  .flowOn(Dispatchers.Default)
                   .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
   fun onQueryChange(q: String) {

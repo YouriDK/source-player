@@ -31,30 +31,30 @@ constructor(
         private val scanner: MediaScanner,
 ) : ViewModel() {
 
-        val isDarkMode = prefs.isDarkMode.stateIn(viewModelScope, SharingStarted.Eagerly, true)
+        val isDarkMode = prefs.isDarkMode.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
         val accentHue =
                 prefs.accentHue.stateIn(
                         viewModelScope,
-                        SharingStarted.Eagerly,
+                        SharingStarted.WhileSubscribed(5_000),
                         AppPreferences.DEFAULT_ACCENT_HUE,
                 )
-        val gapless = prefs.gapless.stateIn(viewModelScope, SharingStarted.Eagerly, false)
-        val audioDucking = prefs.audioDucking.stateIn(viewModelScope, SharingStarted.Eagerly, true)
-        val restoreState = prefs.restoreState.stateIn(viewModelScope, SharingStarted.Eagerly, true)
-        val scrobbling = prefs.scrobbling.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+        val gapless = prefs.gapless.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+        val audioDucking = prefs.audioDucking.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+        val restoreState = prefs.restoreState.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+        val scrobbling = prefs.scrobbling.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
         val artDownloadPolicy =
-                prefs.artDownloadPolicy.stateIn(viewModelScope, SharingStarted.Eagerly, "WIFI")
+                prefs.artDownloadPolicy.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "WIFI")
         val searchBarAtBottom =
-                prefs.searchBarAtBottom.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+                prefs.searchBarAtBottom.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
         val rememberLastTab =
-                prefs.rememberLastTab.stateIn(viewModelScope, SharingStarted.Eagerly, true)
+                prefs.rememberLastTab.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
         val fontFamily =
-                prefs.fontFamily.stateIn(viewModelScope, SharingStarted.Eagerly, "PlusJakartaSans")
+                prefs.fontFamily.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "PlusJakartaSans")
         val lastFmUser: StateFlow<String?> =
-                prefs.lastFmUser.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+                prefs.lastFmUser.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
         val scanProgress =
-                scanner.progressMessage.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+                scanner.progressMessage.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
         private val _loginState = MutableStateFlow<LastFmLoginState>(LastFmLoginState.Idle)
         val loginState = _loginState.asStateFlow()

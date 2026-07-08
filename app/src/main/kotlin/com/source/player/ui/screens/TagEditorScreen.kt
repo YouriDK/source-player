@@ -1,5 +1,9 @@
 package com.source.player.ui.screens
 
+import android.app.Activity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -23,6 +27,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import com.source.player.ui.viewmodel.TagEditorViewModel
@@ -34,19 +39,19 @@ fun TagEditorScreen(
         songId: Long,
         vm: TagEditorViewModel = hiltViewModel(),
 ) {
-  val song by vm.song.collectAsState()
-  val saved by vm.saved.collectAsState()
-  val title by vm.title.collectAsState()
-  val artist by vm.artist.collectAsState()
-  val album by vm.album.collectAsState()
-  val year by vm.year.collectAsState()
-  val genre by vm.genre.collectAsState()
-  val folderSongs by vm.folderSongs.collectAsState()
-  val applyArtist by vm.applyArtistToFolder.collectAsState()
-  val applyAlbum by vm.applyAlbumToFolder.collectAsState()
-  val applyYear by vm.applyYearToFolder.collectAsState()
-  val applyGenre by vm.applyGenreToFolder.collectAsState()
-  val toastMsg by vm.toastMessage.collectAsState()
+  val song by vm.song.collectAsStateWithLifecycle()
+  val saved by vm.saved.collectAsStateWithLifecycle()
+  val title by vm.title.collectAsStateWithLifecycle()
+  val artist by vm.artist.collectAsStateWithLifecycle()
+  val album by vm.album.collectAsStateWithLifecycle()
+  val year by vm.year.collectAsStateWithLifecycle()
+  val genre by vm.genre.collectAsStateWithLifecycle()
+  val folderSongs by vm.folderSongs.collectAsStateWithLifecycle()
+  val applyArtist by vm.applyArtistToFolder.collectAsStateWithLifecycle()
+  val applyAlbum by vm.applyAlbumToFolder.collectAsStateWithLifecycle()
+  val applyYear by vm.applyYearToFolder.collectAsStateWithLifecycle()
+  val applyGenre by vm.applyGenreToFolder.collectAsStateWithLifecycle()
+  val toastMsg by vm.toastMessage.collectAsStateWithLifecycle()
   val context = androidx.compose.ui.platform.LocalContext.current
 
   LaunchedEffect(toastMsg) {
@@ -57,6 +62,21 @@ fun TagEditorScreen(
   }
 
   LaunchedEffect(saved) { if (saved) navController.popBackStack() }
+
+  // ── Scoped-storage write consent (API 30+) ──────────────────────────────────
+  // On Android 11+ the system must approve modifying media files. The ViewModel emits an
+  // IntentSender; we launch it and report the user's answer back.
+  val consentLauncher =
+          rememberLauncherForActivityResult(
+                  ActivityResultContracts.StartIntentSenderForResult()
+          ) { result ->
+            vm.onConsentResult(result.resultCode == Activity.RESULT_OK)
+          }
+  LaunchedEffect(Unit) {
+    vm.consentRequest.collect { intentSender ->
+      consentLauncher.launch(IntentSenderRequest.Builder(intentSender).build())
+    }
+  }
 
   val hasFolderSongs = folderSongs.isNotEmpty()
   val batchActive = hasFolderSongs && (applyArtist || applyAlbum || applyYear || applyGenre)
@@ -316,8 +336,11 @@ private fun ImpactedSongsSection(
               fontWeight = FontWeight.SemiBold,
       )
     }
+    // Cap the eager (non-lazy) preview: large folders would otherwise render
+    // every impacted row inside the scrolling Column.
+    val preview = remember(songs) { songs.take(20) }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-      songs.forEach { s ->
+      preview.forEach { s ->
         Row(
                 modifier =
                         Modifier.fillMaxWidth()
@@ -364,6 +387,14 @@ private fun ImpactedSongsSection(
                   modifier = Modifier.size(20.dp),
           )
         }
+      }
+      if (songs.size > preview.size) {
+        Text(
+                "…and ${songs.size - preview.size} more",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+        )
       }
     }
   }

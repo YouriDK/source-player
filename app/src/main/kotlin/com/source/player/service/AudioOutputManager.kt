@@ -16,6 +16,9 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -94,6 +97,17 @@ constructor(
 
     private var userSelectedDeviceId: Int? = null
 
+    /**
+     * Funnel for refresh triggers. MediaRouter fires onRouteChanged several times per
+     * second during volume drags/route chatter, and each rebuild does a cross-process
+     * AudioManager.getDevices() call on the main thread — coalesce bursts to one rebuild.
+     */
+    private val refreshRequests =
+            MutableSharedFlow<Unit>(
+                    extraBufferCapacity = 1,
+                    onBufferOverflow = BufferOverflow.DROP_OLDEST,
+            )
+
     // ---- Callbacks ----
 
     /** Fires when local hardware devices connect / disconnect. */
@@ -149,6 +163,15 @@ constructor(
             }
 
     init {
+        // Trailing debounce: collectLatest restarts the delay on every new request,
+        // so a callback burst produces exactly one rebuild 250ms after it settles.
+        scope.launch {
+            refreshRequests.collectLatest {
+                delay(250)
+                doRefreshDevices()
+            }
+        }
+
         audioManager.registerAudioDeviceCallback(audioDeviceCallback, mainHandler)
         mediaRouter.addCallback(
                 routeSelector,
@@ -214,6 +237,10 @@ constructor(
     // ---- Internal ----
 
     private fun refreshDevices() {
+        refreshRequests.tryEmit(Unit)
+    }
+
+    private fun doRefreshDevices() {
         val sonosActive = sonosManager.activeDevice.value != null
         val localDevices = buildLocalDevices(forceInactive = sonosActive)
         val remoteRoutes = buildRemoteRoutes(forceInactive = sonosActive)

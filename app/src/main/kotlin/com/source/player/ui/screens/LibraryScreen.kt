@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -37,13 +37,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -51,7 +51,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -59,6 +58,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import com.source.player.data.db.entity.*
@@ -83,16 +83,15 @@ fun LibraryScreen(
         vm: LibraryViewModel = hiltViewModel(),
         playerVm: PlayerViewModel = hiltViewModel(),
 ) {
-    val filteredSongs by vm.filteredSongs.collectAsState()
-    val filteredAlbums by vm.filteredAlbums.collectAsState()
-    val filteredArtists by vm.filteredArtists.collectAsState()
-    val filteredPlaylists by vm.filteredPlaylists.collectAsState()
-    val filteredGenres by vm.filteredGenres.collectAsState()
-    val totalArtists by vm.artists.collectAsState()
+    val filteredSongs by vm.filteredSongs.collectAsStateWithLifecycle()
+    val filteredAlbums by vm.filteredAlbums.collectAsStateWithLifecycle()
+    val filteredArtists by vm.filteredArtists.collectAsStateWithLifecycle()
+    val filteredPlaylists by vm.filteredPlaylists.collectAsStateWithLifecycle()
+    val filteredGenres by vm.filteredGenres.collectAsStateWithLifecycle()
 
-    val query by vm.query.collectAsState()
-    val selectedTab by vm.activeTab.collectAsState()
-    val nowPlaying by playerVm.currentSong.collectAsState()
+    val query by vm.query.collectAsStateWithLifecycle()
+    val selectedTab by vm.activeTab.collectAsStateWithLifecycle()
+    val nowPlaying by playerVm.currentSong.collectAsStateWithLifecycle()
     // Mini player sits above the tab bar when a track is playing — the
     // floating search bar must stack above it, never be occluded.
     // Matches the "Library / w/ mini player" artboard and README §Screens/2.4.
@@ -113,13 +112,16 @@ fun LibraryScreen(
     val text = MaterialTheme.sourceText
 
     val typing = query.isNotEmpty()
-    val chromeAlpha by
+    // Kept as State objects (no `by`) so the animated values are read only
+    // inside graphicsLayer blocks — never in composition — and the fade
+    // animation doesn't recompose the screen every frame.
+    val chromeAlpha =
             animateFloatAsState(
                     targetValue = if (typing) 0.35f else 1f,
                     animationSpec = tween(250),
                     label = "libraryChromeAlpha",
             )
-    val railAlpha by
+    val railAlpha =
             animateFloatAsState(
                     targetValue = if (typing) 0f else 1f,
                     animationSpec = tween(250),
@@ -137,15 +139,19 @@ fun LibraryScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(text = "Library", style = text.editorialHeadline32, color = colors.text)
-                val counter =
-                        if (typing)
-                                "${visibleCount(selectedTab, filteredSongs, filteredAlbums, filteredArtists, filteredPlaylists, filteredGenres)} / ${totalArtists.size.coerceAtLeast(currentTotal(selectedTab, vm))}"
-                        else "A–Z"
-                MonoText(
-                        text = counter,
-                        color = colors.textMute,
-                        size = MonoSize.S10,
-                        modifier = Modifier.alpha(if (typing) 1f else 1f),
+                LibraryCountLabel(
+                        selectedTab = selectedTab,
+                        typing = typing,
+                        visibleCount =
+                                visibleCount(
+                                        selectedTab,
+                                        filteredSongs,
+                                        filteredAlbums,
+                                        filteredArtists,
+                                        filteredPlaylists,
+                                        filteredGenres,
+                                ),
+                        vm = vm,
                 )
             }
 
@@ -153,7 +159,7 @@ fun LibraryScreen(
             Row(
                     modifier =
                             Modifier.fillMaxWidth()
-                                    .alpha(chromeAlpha)
+                                    .graphicsLayer { alpha = chromeAlpha.value }
                                     .horizontalScroll(rememberScrollState())
                                     .padding(horizontal = 24.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -166,7 +172,7 @@ fun LibraryScreen(
                     )
                 }
             }
-            Hairline(modifier = Modifier.alpha(chromeAlpha))
+            Hairline(modifier = Modifier.graphicsLayer { alpha = chromeAlpha.value })
 
             // Body ----------------------------------------------------
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
@@ -194,7 +200,7 @@ fun LibraryScreen(
                             VinylArtistsList(
                                     artists = filteredArtists,
                                     query = query,
-                                    railAlpha = railAlpha,
+                                    railAlpha = { railAlpha.value },
                                     flashLetter = flashLetter,
                                     onJump = { c -> flashLetter = c },
                                     onClick = {
@@ -247,21 +253,38 @@ fun LibraryScreen(
     }
 }
 
-// Total count for the "N / M" counter display when typing.
+// "N / M" header label. Collects the unfiltered flow of the selected tab
+// here so that collection only ever recomposes this label, never the screen.
 @Composable
-private fun currentTotal(tab: LibraryTab, vm: LibraryViewModel): Int {
-    val totalSongs by vm.songs.collectAsState()
-    val totalAlbums by vm.albums.collectAsState()
-    val totalArtists by vm.artists.collectAsState()
-    val totalPlaylists by vm.playlists.collectAsState()
-    val totalGenres by vm.genres.collectAsState()
-    return when (tab) {
-        LibraryTab.Songs -> totalSongs.size
-        LibraryTab.Albums -> totalAlbums.size
-        LibraryTab.Artists -> totalArtists.size
-        LibraryTab.Playlists -> totalPlaylists.size
-        LibraryTab.Genres -> totalGenres.size
-    }
+private fun LibraryCountLabel(
+        selectedTab: LibraryTab,
+        typing: Boolean,
+        visibleCount: Int,
+        vm: LibraryViewModel,
+) {
+    val colors = MaterialTheme.sourceColors
+    val counter =
+            if (typing) {
+                val total =
+                        when (selectedTab) {
+                            LibraryTab.Songs ->
+                                    vm.songs.collectAsStateWithLifecycle().value.size
+                            LibraryTab.Albums ->
+                                    vm.albums.collectAsStateWithLifecycle().value.size
+                            LibraryTab.Artists ->
+                                    vm.artists.collectAsStateWithLifecycle().value.size
+                            LibraryTab.Playlists ->
+                                    vm.playlists.collectAsStateWithLifecycle().value.size
+                            LibraryTab.Genres ->
+                                    vm.genres.collectAsStateWithLifecycle().value.size
+                        }
+                "$visibleCount / $total"
+            } else "A–Z"
+    MonoText(
+            text = counter,
+            color = colors.textMute,
+            size = MonoSize.S10,
+    )
 }
 
 private fun visibleCount(
@@ -402,8 +425,7 @@ private fun VinylAlbumsGrid(
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier.fillMaxSize(),
     ) {
-        items(albums.size) { i ->
-            val album = albums[i]
+        items(albums, key = { it.id }, contentType = { "album" }) { album ->
             Column(modifier = Modifier.clickable { onClick(album) }) {
                 AsyncImage(
                         model = album.artUri,
@@ -440,7 +462,7 @@ private fun VinylAlbumsGrid(
 private fun VinylArtistsList(
         artists: List<ArtistEntity>,
         query: String,
-        railAlpha: Float,
+        railAlpha: () -> Float,
         flashLetter: Char?,
         onJump: (Char) -> Unit,
         onClick: (ArtistEntity) -> Unit,
@@ -466,7 +488,9 @@ private fun VinylArtistsList(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    // Scroll-driven active letter.
+    // Scroll-driven active letter. Kept as State — its value is only read
+    // inside RailLetter, so scrolling recomposes the rail labels, not this
+    // whole list.
     val activeLetter =
             remember(artists, letterIndex) {
                 derivedStateOf {
@@ -476,7 +500,6 @@ private fun VinylArtistsList(
                             ?.uppercaseChar()
                 }
             }
-                    .value
 
     Row(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -503,7 +526,7 @@ private fun VinylArtistsList(
                             )
                     Text(
                             text = thisLetter.toString(),
-                            style = text.libraryLetter64.copy(fontStyle = FontStyle.Italic),
+                            style = text.libraryLetter64,
                             color =
                                     if (query.isBlank() || flashing) colors.accent
                                     else colors.textMute,
@@ -544,20 +567,23 @@ private fun VinylArtistsList(
             }
         }
 
-        // A-Z rail — fades out when typing, disables pointer input too.
-        if (railAlpha > 0f) {
+        // A-Z rail — fades out when typing, disables pointer input too. The
+        // animated alpha is read only inside graphicsLayer blocks; composition
+        // only sees the derived visible/hidden flip, never per-frame values.
+        val railVisible by remember(railAlpha) { derivedStateOf { railAlpha() > 0f } }
+        if (railVisible) {
             val letters = remember(letterIndex) { letterIndex.keys.toList() }
             val density = LocalDensity.current
             val topPadPx = with(density) { 20.dp.toPx() }
             val bottomPadPx = with(density) { 20.dp.toPx() }
             var columnHeightPx by remember { mutableStateOf(0) }
 
-            VerticalHairline(modifier = Modifier.alpha(railAlpha))
+            VerticalHairline(modifier = Modifier.graphicsLayer { alpha = railAlpha() })
             Column(
                     modifier =
                             Modifier.width(28.dp)
                                     .fillMaxHeight()
-                                    .alpha(railAlpha)
+                                    .graphicsLayer { alpha = railAlpha() }
                                     .padding(top = 20.dp, bottom = 20.dp)
                                     .onSizeChanged { columnHeightPx = it.height }
                                     .pointerInput(letters) {
@@ -601,18 +627,25 @@ private fun VinylArtistsList(
                     verticalArrangement = Arrangement.spacedBy(5.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                letters.forEach { letter ->
-                    val active = letter == activeLetter
-                    Box {
-                        Text(
-                                text = letter.toString(),
-                                style = text.kickerMono10,
-                                color = if (active) colors.accent else colors.textMute,
-                        )
-                    }
-                }
+                letters.forEach { letter -> RailLetter(letter, activeLetter) }
             }
         }
+    }
+}
+
+// One A-Z rail label. Reads the scroll-derived active letter here so scroll
+// updates recompose only these labels, not VinylArtistsList.
+@Composable
+private fun RailLetter(letter: Char, activeLetter: State<Char?>) {
+    val colors = MaterialTheme.sourceColors
+    val text = MaterialTheme.sourceText
+    val active = letter == activeLetter.value
+    Box {
+        Text(
+                text = letter.toString(),
+                style = text.kickerMono10,
+                color = if (active) colors.accent else colors.textMute,
+        )
     }
 }
 
@@ -759,19 +792,19 @@ private fun NoResultsState(query: String) {
             horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         val msg = buildAnnotatedString {
-            withStyle(SpanStyle(color = colors.textDim, fontStyle = FontStyle.Italic)) {
+            withStyle(SpanStyle(color = colors.textDim)) {
                 append("Nothing for “")
             }
-            withStyle(SpanStyle(color = colors.text, fontStyle = FontStyle.Italic)) {
+            withStyle(SpanStyle(color = colors.text)) {
                 append(query)
             }
-            withStyle(SpanStyle(color = colors.textDim, fontStyle = FontStyle.Italic)) {
+            withStyle(SpanStyle(color = colors.textDim)) {
                 append("”.")
             }
         }
         Text(
                 text = msg,
-                style = text.editorialHeadline32.copy(fontStyle = FontStyle.Italic),
+                style = text.editorialHeadline32,
                 textAlign = TextAlign.Center,
         )
     }
@@ -823,7 +856,7 @@ private fun FloatingSearchBar(
                         text = placeholder,
                         style =
                                 text.rotationTitle18
-                                        .copy(fontStyle = FontStyle.Italic, fontSize = 20.sp),
+                                        .copy(fontSize = 20.sp),
                         color = colors.textMute,
                 )
             }
@@ -837,7 +870,6 @@ private fun FloatingSearchBar(
                     singleLine = true,
                     textStyle =
                             text.rotationTitle18.copy(
-                                    fontStyle = FontStyle.Italic,
                                     color = colors.text,
                             ),
                     cursorBrush = SolidColor(colors.accent),
@@ -878,7 +910,7 @@ private fun highlightMatch(source: String, query: String, accent: Color): Annota
     if (idx < 0) return AnnotatedString(source)
     return buildAnnotatedString {
         append(source.substring(0, idx))
-        withStyle(SpanStyle(color = accent, fontStyle = FontStyle.Italic)) {
+        withStyle(SpanStyle(color = accent)) {
             append(source.substring(idx, idx + query.length))
         }
         append(source.substring(idx + query.length))

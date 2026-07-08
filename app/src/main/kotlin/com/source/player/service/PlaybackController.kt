@@ -99,6 +99,8 @@ constructor(
   private var lastSonosTrackId: String? = null
   /** Single-flight guard so one trackEnded event never advances twice. */
   private val advancing = AtomicBoolean(false)
+  /** Reset when playback starts; caps the error → auto-skip chain. */
+  private var consecutivePlaybackErrors = 0
 
   init {
     connect()
@@ -132,11 +134,17 @@ constructor(
     scope.launch {
       sonosManager.activeDevice.collectLatest { device ->
         if (device == null) return@collectLatest
+        var firstPoll = true
         while (true) {
-          val info = sonosManager.getPositionInfo(device)
-          if (info != null) {
-            _positionMs.value = info.relTimeMs
-            if (info.durationMs > 0) _durationMs.value = info.durationMs
+          // While paused the speaker's position is frozen — skip the SOAP round-trip.
+          // (First poll always runs so the seekbar is right immediately after activation.)
+          if (firstPoll || sonosManager.sonosPlaying.value) {
+            firstPoll = false
+            val info = sonosManager.getPositionInfo(device)
+            if (info != null) {
+              _positionMs.value = info.relTimeMs
+              if (info.durationMs > 0) _durationMs.value = info.durationMs
+            }
           }
           delay(2_000L)
         }
@@ -178,7 +186,16 @@ constructor(
     }
   }
 
+  /** True while a MediaController build is in flight — see [connect]. */
+  private var connecting = false
+
   private fun connect() {
+    // connect() is retried from play()/setQueue() fallbacks; without this guard each
+    // call builds a fresh MediaController that overwrites the previous one WITHOUT
+    // releasing it — a leaked binder connection plus a duplicated player listener
+    // (every event then handled twice: double queue rebuilds, double persistState).
+    if (connecting || controller != null) return
+    connecting = true
     val token = SessionToken(context, ComponentName(context, SourcePlaybackService::class.java))
     // Build the MediaController asynchronously using the future + listener pattern
     val future = MediaController.Builder(context, token).buildAsync()
@@ -190,6 +207,8 @@ constructor(
                 controller?.let { syncState(it) }
               } catch (e: Exception) {
                 // Connection failed — service not started yet, will reconnect on first play
+              } finally {
+                connecting = false
               }
             },
             { scope.launch { it.run() } },
@@ -349,11 +368,19 @@ constructor(
   private val playerListener =
           object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
-              // When Sonos is active, ExoPlayer is paused — don't overwrite _isPlaying
-              if (sonosManager.activeDevice.value != null) return
+              // When Sonos is active, ExoPlayer is paused — don't overwrite _isPlaying,
+              // but DO stop the local ticker: this callback arrives after activateSonos()
+              // has already set activeDevice, and a live ticker would fight the Sonos
+              // position poll over _positionMs for the whole session.
+              if (sonosManager.activeDevice.value != null) {
+                stopPositionTicker()
+                return
+              }
               _isPlaying.value = isPlaying
-              if (isPlaying) startPositionTicker()
-              else {
+              if (isPlaying) {
+                consecutivePlaybackErrors = 0
+                startPositionTicker()
+              } else {
                 stopPositionTicker()
                 scrobbleJob?.cancel() // don't scrobble if paused/stopped
                 persistState() // capture pause point
@@ -375,16 +402,23 @@ constructor(
               _shuffleEnabled.value = enabled
             }
             override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
-              val items = mutableListOf<MediaItem>()
-              for (i in 0 until (controller?.mediaItemCount ?: 0)) {
-                items.add(controller!!.getMediaItemAt(i))
+              val c = controller ?: return
+              _durationMs.value = c.duration.takeIf { it > 0 } ?: 0L
+              // Timeline events also fire for source metadata updates — only rebuild the
+              // queue list (O(N) on the main thread) when the playlist actually changed.
+              if (reason != Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED) return
+              val items = ArrayList<MediaItem>(c.mediaItemCount)
+              for (i in 0 until c.mediaItemCount) {
+                items.add(c.getMediaItemAt(i))
               }
               _queueItems.value = items
-              _durationMs.value = controller?.duration?.takeIf { it > 0 } ?: 0L
               persistState()
             }
             override fun onEvents(player: Player, events: Player.Events) {
-              _positionMs.value = player.currentPosition
+              // The 300ms ticker owns routine position updates; only sync here on jumps.
+              if (events.contains(Player.EVENT_POSITION_DISCONTINUITY)) {
+                _positionMs.value = player.currentPosition
+              }
             }
             override fun onPlayerError(error: PlaybackException) {
               val songTitle = controller?.currentMediaItem?.mediaMetadata?.title ?: "Unknown"
@@ -399,7 +433,11 @@ constructor(
                         else -> "Playback error"
                       }
               _playbackError.value = "Can't play \"$songTitle\": $reason"
-              // Try to skip to the next song
+              // Try to skip to the next song — but stop after a run of failures:
+              // with REPEAT_MODE_ALL and a fully unplayable queue this would
+              // otherwise spin error → skip → error forever.
+              consecutivePlaybackErrors++
+              if (consecutivePlaybackErrors >= 5) return
               controller?.let { c ->
                 if (c.hasNextMediaItem()) {
                   c.seekToNextMediaItem()
@@ -441,25 +479,30 @@ constructor(
   private fun persistState() {
     // Don't overwrite a valid saved queue with an empty one (fires during teardown
     // or when the controller briefly reports 0 items between queue swaps).
-    if (_queueItems.value.isEmpty()) return
-    val ids = _queueItems.value.mapNotNull { it.mediaId.toLongOrNull() }.joinToString(",")
-    if (ids.isBlank()) return
+    val items = _queueItems.value
+    if (items.isEmpty()) return
+    // Snapshot controller state on the main thread, then build the CSV off it —
+    // this runs on every track skip/pause, and joining thousands of ids on the
+    // main thread is a frame drop at exactly the moments users notice.
     val index = controller?.currentMediaItemIndex ?: 0
     val pos = controller?.currentPosition ?: 0L
-    scope.launch { prefs.saveQueueState(ids, index, pos) }
+    scope.launch(Dispatchers.Default) {
+      val ids = items.mapNotNull { it.mediaId.toLongOrNull() }.joinToString(",")
+      if (ids.isBlank()) return@launch
+      prefs.saveQueueState(ids, index, pos)
+    }
   }
 
   private fun startPositionTicker() {
     positionTickerJob?.cancel()
     positionTickerJob =
             scope.launch {
+              // scope already runs on Dispatchers.Main — no re-dispatch per tick needed
               while (true) {
-                withContext(Dispatchers.Main) {
-                  controller?.let { c ->
-                    _positionMs.value = c.currentPosition
-                    val dur = c.duration
-                    if (dur > 0) _durationMs.value = dur
-                  }
+                controller?.let { c ->
+                  _positionMs.value = c.currentPosition
+                  val dur = c.duration
+                  if (dur > 0) _durationMs.value = dur
                 }
                 delay(300L)
               }
@@ -479,6 +522,7 @@ constructor(
    */
   fun activateSonos(device: SonosDevice) {
     controller?.pause() // stop local audio, keep queue intact
+    stopPositionTicker() // the Sonos poll owns _positionMs from here
     sonosManager.activate(device)
     scope.launch(Dispatchers.IO) {
       sendCurrentToSonos(device)

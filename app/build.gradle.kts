@@ -23,8 +23,8 @@ android {
         applicationId = "com.source.player"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "2.5.0"
+        versionCode = 3
+        versionName = "2.6.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -37,6 +37,20 @@ android {
         )
     }
 
+    signingConfigs {
+        // Release signing — credentials live in local.properties (git-ignored), never in source.
+        // Only configured when a keystore path is present, so debug builds work without it.
+        val storeFilePath = localProps["signing.store.file"] as String?
+        if (storeFilePath != null) {
+            create("release") {
+                storeFile = rootProject.file(storeFilePath)
+                storePassword = localProps["signing.store.password"] as String?
+                keyAlias = localProps["signing.key.alias"] as String?
+                keyPassword = localProps["signing.key.password"] as String?
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -45,25 +59,17 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Use the release signing config if it was configured above.
+            signingConfig = signingConfigs.findByName("release")
         }
         debug {
             applicationIdSuffix = ".debug"
-            isDebuggable = true
         }
     }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-    }
-
-    kotlinOptions {
-        jvmTarget = "17"
-        freeCompilerArgs = listOf(
-            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
-            "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
-            "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
-        )
     }
 
     buildFeatures {
@@ -73,6 +79,17 @@ android {
 
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        optIn.addAll(
+            "androidx.compose.material3.ExperimentalMaterial3Api",
+            "androidx.compose.foundation.ExperimentalFoundationApi",
+            "kotlinx.coroutines.ExperimentalCoroutinesApi",
+        )
     }
 }
 
@@ -108,11 +125,9 @@ dependencies {
     ksp(libs.hilt.compiler)
     implementation(libs.hilt.navigation.compose)
 
-    // Media3
+    // Media3 (media3-common comes in transitively as an API dep of media3-exoplayer)
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.session)
-    implementation(libs.media3.ui)
-    implementation(libs.media3.common)
 
     // MediaRouter (Wi-Fi / Sonos / Cast route discovery)
     implementation(libs.mediarouter)
@@ -121,6 +136,8 @@ dependencies {
     implementation(libs.media3.cast)
     implementation(libs.play.services.cast.framework)
     implementation(libs.ktor.server.cio)
+    implementation(libs.ktor.server.partial.content)
+    implementation(libs.ktor.server.auto.head)
 
     // Room
     implementation(libs.room.runtime)
@@ -141,6 +158,9 @@ dependencies {
     implementation(libs.ktor.client.content.neg)
     implementation(libs.ktor.serialization.json)
     implementation(libs.ktor.client.logging)
+
+    // Audio tag writing (tag editor)
+    implementation(libs.jaudiotagger)
 
     // DataStore
     implementation(libs.datastore.preferences)

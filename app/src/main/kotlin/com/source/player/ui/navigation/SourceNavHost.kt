@@ -78,7 +78,7 @@ val bottomNavItems =
         )
 
 // Routes that should hide the bottom nav + mini player
-private val fullScreenRoutes = setOf(Routes.PLAYER, Routes.QUEUE)
+private val fullScreenRoutes = setOf(Routes.PLAYER)
 
 @Composable
 fun SourceNavHost() {

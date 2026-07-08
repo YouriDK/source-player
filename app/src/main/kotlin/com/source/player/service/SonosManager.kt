@@ -134,11 +134,18 @@ constructor(
             } catch (e: Exception) {
                 // Fallback: try finding the Wi-Fi interface explicitly
                 Log.w(TAG, "joinGroup(addr, null) failed, trying Wi-Fi interface", e)
-                val wifiIf = NetworkInterface.getNetworkInterfaces()
-                        ?.asSequence()
-                        ?.filter { it.isUp && !it.isLoopback }
-                        ?.firstOrNull { it.name.startsWith("wlan") || it.name.startsWith("wifi") }
-                socket.joinGroup(groupAddr, wifiIf)
+                try {
+                    val wifiIf = NetworkInterface.getNetworkInterfaces()
+                            ?.asSequence()
+                            ?.filter { it.isUp && !it.isLoopback }
+                            ?.firstOrNull { it.name.startsWith("wlan") || it.name.startsWith("wifi") }
+                    socket.joinGroup(groupAddr, wifiIf)
+                } catch (e2: Exception) {
+                    // Both attempts failed — close before rethrowing; the socket is
+                    // created outside socket.use so it would otherwise leak.
+                    socket.close()
+                    throw e2
+                }
             }
 
             socket.use { s ->

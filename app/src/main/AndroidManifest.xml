@@ -12,7 +12,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- Bluetooth device names (API 31+) -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
@@ -26,15 +25,19 @@
     <!-- Notifications (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- Tag editor: write file metadata -->
+    <!-- Tag editor: write tags into audio files.
+         API ≤29 : direct file write needs WRITE_EXTERNAL_STORAGE (+ requestLegacyExternalStorage
+                   on API 29, set on <application> below).
+         API 30+ : no broad storage permission — each edit is approved by the user via
+                   MediaStore.createWriteRequest(), so MANAGE_MEDIA is intentionally NOT requested. -->
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
-    <uses-permission android:name="android.permission.MANAGE_MEDIA" />
 
     <application
         android:name=".SourceApplication"
         android:allowBackup="false"
+        android:requestLegacyExternalStorage="true"
         android:networkSecurityConfig="@xml/network_security_config"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -70,16 +73,6 @@
         <meta-data
             android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
             android:value="com.source.player.service.CastOptionsProvider" />
-
-        <!-- Boot receiver: restore playback state -->
-        <receiver
-            android:name=".receiver.BootReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-            </intent-filter>
-        </receiver>
 
         <!-- App Startup initializer -->
         <provider

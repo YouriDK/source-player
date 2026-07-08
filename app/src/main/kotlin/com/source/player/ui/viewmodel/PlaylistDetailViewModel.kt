@@ -11,9 +11,12 @@ import com.source.player.data.db.entity.SongEntity
 import com.source.player.service.PlaybackController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
+@OptIn(FlowPreview::class)
 @HiltViewModel
 class PlaylistDetailViewModel
 @Inject
@@ -36,24 +39,31 @@ constructor(
 
   /** All songs in library (for the add-song picker) */
   val allSongs: StateFlow<List<SongEntity>> =
-          songDao.getAllFlow().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+          songDao.getAllFlow()
+                  .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
   private val _searchQuery = MutableStateFlow("")
   val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
+  private val debouncedQuery = _searchQuery.debounce(150).distinctUntilChanged()
+
+  /** IDs of songs already in the playlist — rebuilt only when membership actually changes. */
+  private val existingIds: Flow<Set<Long>> =
+          songs.map { list -> list.mapTo(HashSet()) { it.id } }.distinctUntilChanged()
+
   /** Filtered songs for the add-song picker (excludes already-in-playlist songs) */
   val filteredSongs: StateFlow<List<SongEntity>> =
-          combine(allSongs, songs, _searchQuery) { all, existing, query ->
-                    val existingIds = existing.map { it.id }.toSet()
+          combine(allSongs, existingIds, debouncedQuery) { all, existing, query ->
                     all.filter { song ->
-                      song.id !in existingIds &&
+                      song.id !in existing &&
                               (query.isBlank() ||
                                       song.title.contains(query, ignoreCase = true) ||
                                       song.artist.contains(query, ignoreCase = true) ||
                                       song.album.contains(query, ignoreCase = true))
                     }
                   }
-                  .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+                  .flowOn(Dispatchers.Default)
+                  .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
   private val _toastMessage = MutableStateFlow<String?>(null)
   val toastMessage: StateFlow<String?> = _toastMessage.asStateFlow()
