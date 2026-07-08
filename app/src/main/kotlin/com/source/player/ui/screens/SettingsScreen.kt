@@ -145,6 +145,11 @@ fun SettingsScreen(
 
   if (showAudioOutput) {
     LaunchedEffect(Unit) { audioVm.scanAll() }
+    // Active route discovery (Cast/mDNS scanning) only while the picker is open.
+    DisposableEffect(Unit) {
+      audioVm.setActiveDiscovery(true)
+      onDispose { audioVm.setActiveDiscovery(false) }
+    }
     AudioOutputSheet(
             devices = audioDevices,
             activeDevice = activeAudioDevice,

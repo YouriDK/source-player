@@ -28,9 +28,9 @@ object DatabaseModule {
   @Provides
   @Singleton
   fun provideDatabase(@ApplicationContext ctx: Context): AppDatabase =
-          Room.databaseBuilder(ctx, AppDatabase::class.java, "source_db")
-                  .fallbackToDestructiveMigration()
-                  .build()
+          // No destructive fallback: a schema bump without a registered Migration
+          // must fail loudly in development, never silently wipe user playlists.
+          Room.databaseBuilder(ctx, AppDatabase::class.java, "source_db").build()
 
   @Provides fun provideSongDao(db: AppDatabase) = db.songDao()
   @Provides fun provideAlbumDao(db: AppDatabase) = db.albumDao()
