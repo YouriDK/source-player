@@ -1,6 +1,10 @@
 package com.source.player.ui.navigation
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -11,12 +15,6 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Folder
-import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.rounded.LibraryMusic
-import androidx.compose.material.icons.automirrored.rounded.QueueMusic
-import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -25,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
@@ -35,6 +34,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.source.player.ui.components.Hairline
+import com.source.player.ui.icons.HugeIcons
 import com.source.player.ui.screens.*
 import com.source.player.ui.theme.sourceColors
 import com.source.player.ui.theme.sourceText
@@ -70,11 +70,11 @@ data class BottomNavItem(
 // Folders is kept as a first-class destination, as requested.
 val bottomNavItems =
         listOf(
-                BottomNavItem(Routes.HOME, "Home", Icons.Rounded.Home),
-                BottomNavItem(Routes.LIBRARY, "Library", Icons.Rounded.LibraryMusic),
-                BottomNavItem(Routes.QUEUE, "Queue", Icons.AutoMirrored.Rounded.QueueMusic),
-                BottomNavItem(Routes.FOLDERS, "Folders", Icons.Rounded.Folder),
-                BottomNavItem(Routes.SETTINGS, "Settings", Icons.Rounded.Settings),
+                BottomNavItem(Routes.HOME, "Home", HugeIcons.Home),
+                BottomNavItem(Routes.LIBRARY, "Library", HugeIcons.Library),
+                BottomNavItem(Routes.QUEUE, "Queue", HugeIcons.Playlist),
+                BottomNavItem(Routes.FOLDERS, "Folders", HugeIcons.Folder),
+                BottomNavItem(Routes.SETTINGS, "Settings", HugeIcons.Settings),
         )
 
 // Routes that should hide the bottom nav + mini player
@@ -116,7 +116,20 @@ fun SourceNavHost() {
         composable(Routes.SEARCH) { SearchScreen(navController) }
         composable(Routes.FOLDERS) { FoldersScreen(navController) }
         composable(Routes.SETTINGS) { SettingsScreen(navController) }
-        composable(Routes.PLAYER) { PlayerScreen(navController) }
+        // The player is the one route that isn't a sibling of the others: it
+        // rises out of the mini player and collapses back into it, so it gets
+        // vertical transitions instead of the graph-wide horizontal ones. A
+        // pull-down leaves the screen already part-way down, and this exit
+        // carries it the rest of the way as one continuous move.
+        composable(
+                Routes.PLAYER,
+                enterTransition = { slideInVertically(tween(280)) { it } + fadeIn(tween(180)) },
+                popExitTransition = {
+                    slideOutVertically(tween(260)) { it } + fadeOut(tween(220))
+                },
+        ) {
+            PlayerScreen(navController)
+        }
         composable(Routes.QUEUE) { QueueScreen(navController) }
         composable(
                 Routes.ALBUM_DETAIL,
@@ -172,6 +185,26 @@ private fun SourceBottomNav(navController: NavController, currentRoute: String?)
         ) {
             bottomNavItems.forEach { item ->
                 val selected = currentRoute == item.route
+                // Selection eases in: the tint fades and the icon springs up a touch,
+                // so tab switches feel connected instead of instantaneous. Both values
+                // are animated State read inside graphicsLayer / as a colour, which
+                // keeps the work off the composition path.
+                val tint by
+                        animateColorAsState(
+                                targetValue = if (selected) colors.accent else colors.textMute,
+                                animationSpec = tween(200),
+                                label = "navTint-${item.route}",
+                        )
+                val iconScale =
+                        animateFloatAsState(
+                                targetValue = if (selected) 1.14f else 1f,
+                                animationSpec =
+                                        spring(
+                                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                                stiffness = Spring.StiffnessMediumLow,
+                                        ),
+                                label = "navScale-${item.route}",
+                        )
                 Column(
                         modifier =
                                 Modifier.weight(1f)
@@ -190,14 +223,14 @@ private fun SourceBottomNav(navController: NavController, currentRoute: String?)
                     Icon(
                             imageVector = item.icon,
                             contentDescription = item.label,
-                            tint = if (selected) colors.accent else colors.textMute,
-                            modifier = Modifier.size(22.dp),
+                            tint = tint,
+                            modifier =
+                                    Modifier.size(22.dp).graphicsLayer {
+                                        scaleX = iconScale.value
+                                        scaleY = iconScale.value
+                                    },
                     )
-                    Text(
-                            text = item.label,
-                            style = text.pillLabel12,
-                            color = if (selected) colors.accent else colors.textMute,
-                    )
+                    Text(text = item.label, style = text.pillLabel12, color = tint)
                 }
             }
         }

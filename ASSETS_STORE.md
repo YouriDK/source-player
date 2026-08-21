@@ -1,4 +1,4 @@
-- Short description : A stunning, elegant, and powerful local music player designed for your aesthetic.
+- Short description : A stunning, elegant, and powerful local music player designed for your aesthetic
 
 - Long description : Source is the premium music player your local audio library deserves. Crafted with a focus on stunning aesthetics, buttery-smooth animations, and total control, Source makes listening to your offline music an absolute joy.
 

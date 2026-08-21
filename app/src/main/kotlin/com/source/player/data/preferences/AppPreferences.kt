@@ -7,6 +7,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.dataStore by preferencesDataStore("source_prefs")
@@ -33,6 +34,10 @@ class AppPreferences @Inject constructor(@ApplicationContext private val ctx: Co
     val QUEUE_POSITION = longPreferencesKey("queue_position_ms")
     val FONT_FAMILY = stringPreferencesKey("font_family")
     val SONOS_ACTIVE_ID = stringPreferencesKey("sonos_active_id")
+    // MediaStore change-detection stamps — see MediaScanner.scanIfStale()
+    val MEDIASTORE_VERSION = stringPreferencesKey("mediastore_version")
+    val MEDIASTORE_GENERATION = longPreferencesKey("mediastore_generation")
+    val LAST_SCAN_AT = longPreferencesKey("last_scan_at")
   }
 
   val isDarkMode: Flow<Boolean> = ctx.dataStore.data.map { it[Keys.DARK_MODE] ?: true }
@@ -65,6 +70,27 @@ class AppPreferences @Inject constructor(@ApplicationContext private val ctx: Co
           ctx.dataStore.data.map { it[Keys.FONT_FAMILY] ?: "PlusJakartaSans" }
   val sonosActiveId: Flow<String?> = ctx.dataStore.data.map { it[Keys.SONOS_ACTIVE_ID] }
 
+  /**
+   * Stamp of the MediaStore state at the end of the last successful scan:
+   * (version, generation, wall-clock). [MediaScanner.scanIfStale] compares the
+   * live values against it to decide whether a rescan is worth running.
+   */
+  suspend fun mediaStoreStamp(): Triple<String?, Long, Long> {
+    val prefs = ctx.dataStore.data.first()
+    return Triple(
+            prefs[Keys.MEDIASTORE_VERSION],
+            prefs[Keys.MEDIASTORE_GENERATION] ?: -1L,
+            prefs[Keys.LAST_SCAN_AT] ?: 0L,
+    )
+  }
+
+  suspend fun setMediaStoreStamp(version: String, generation: Long, scannedAt: Long) =
+          ctx.dataStore.edit {
+            it[Keys.MEDIASTORE_VERSION] = version
+            it[Keys.MEDIASTORE_GENERATION] = generation
+            it[Keys.LAST_SCAN_AT] = scannedAt
+          }
+
   suspend fun setDarkMode(v: Boolean) = ctx.dataStore.edit { it[Keys.DARK_MODE] = v }
   suspend fun setAccentHue(v: Float) =
           ctx.dataStore.edit {
@@ -95,6 +121,17 @@ class AppPreferences @Inject constructor(@ApplicationContext private val ctx: Co
             it[Keys.QUEUE_JSON] = json
             it[Keys.QUEUE_INDEX] = index
             it[Keys.QUEUE_POSITION] = positionMs
+          }
+
+  /**
+   * Drop the persisted queue entirely. Used when the user dismisses playback:
+   * without this the next launch would restore the queue they just swiped away.
+   */
+  suspend fun clearQueueState() =
+          ctx.dataStore.edit {
+            it.remove(Keys.QUEUE_JSON)
+            it.remove(Keys.QUEUE_INDEX)
+            it.remove(Keys.QUEUE_POSITION)
           }
 
   companion object {

@@ -87,10 +87,13 @@ fun QueueScreen(
                 val item = entry.second
                 val isCurrent = i == currentIndex
                 val isPlayed = i < currentIndex
-                Hairline(modifier = Modifier.padding(horizontal = 24.dp))
+                // animateItem: removing a track or reordering the queue slides the
+                // remaining rows instead of snapping them to their new positions.
+                Hairline(modifier = Modifier.animateItem().padding(horizontal = 24.dp))
                 Row(
                         modifier =
-                                Modifier.fillMaxWidth()
+                                Modifier.animateItem()
+                                        .fillMaxWidth()
                                         .clickable { vm.skipToQueueItem(i) }
                                         .alpha(if (isPlayed) 0.45f else 1f)
                                         .padding(horizontal = 24.dp, vertical = 14.dp),

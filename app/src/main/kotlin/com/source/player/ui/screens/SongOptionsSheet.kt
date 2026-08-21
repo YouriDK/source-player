@@ -5,9 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.*
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,6 +18,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.source.player.data.db.entity.PlaylistEntity
 import com.source.player.data.db.entity.SongEntity
+import com.source.player.ui.icons.HugeIcons
 import com.source.player.ui.navigation.Routes
 import com.source.player.ui.viewmodel.SongOptionsViewModel
 
@@ -66,7 +64,7 @@ fun SongOptionsSheet(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Icon(
-                            Icons.Rounded.MusicNote,
+                            HugeIcons.MusicNote,
                             null,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(36.dp)
@@ -88,31 +86,31 @@ fun SongOptionsSheet(
                 }
                 HorizontalDivider()
 
-                OptionRow(icon = Icons.Rounded.PlayArrow, label = "Play Now") {
+                OptionRow(icon = HugeIcons.Play, label = "Play Now") {
                     vm.playSong(song)
                     onDismiss()
                 }
-                OptionRow(icon = Icons.Rounded.SkipNext, label = "Play Next") {
+                OptionRow(icon = HugeIcons.Next, label = "Play Next") {
                     vm.playNext(song)
                     onDismiss()
                 }
-                OptionRow(icon = Icons.Rounded.AddToQueue, label = "Add to Queue") {
+                OptionRow(icon = HugeIcons.Queue, label = "Add to Queue") {
                     vm.addToQueue(song)
                     onDismiss()
                 }
                 OptionRow(
-                        icon = Icons.AutoMirrored.Rounded.PlaylistAdd,
+                        icon = HugeIcons.PlaylistAdd,
                         label = "Add to Playlist"
                 ) { showPlaylistPicker = true }
-                OptionRow(icon = Icons.Rounded.Edit, label = "Edit Tags") {
+                OptionRow(icon = HugeIcons.Edit, label = "Edit Tags") {
                     navController.navigate(Routes.tagEditor(song.id))
                     onDismiss()
                 }
-                OptionRow(icon = Icons.Rounded.Album, label = "Go to Album") {
+                OptionRow(icon = HugeIcons.Album, label = "Go to Album") {
                     navController.navigate(Routes.albumDetail(song.albumId))
                     onDismiss()
                 }
-                OptionRow(icon = Icons.Rounded.Person, label = "Go to Artist") {
+                OptionRow(icon = HugeIcons.Person, label = "Go to Artist") {
                     navController.navigate(Routes.artistDetail(song.artistId))
                     onDismiss()
                 }
@@ -126,7 +124,7 @@ fun SongOptionsSheet(
                         verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IconButton(onClick = { showPlaylistPicker = false }) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back")
+                        Icon(HugeIcons.ArrowLeft, "Back")
                     }
                     Text(
                             "Add to Playlist",
@@ -142,7 +140,7 @@ fun SongOptionsSheet(
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(
-                                    Icons.AutoMirrored.Rounded.PlaylistAdd,
+                                    HugeIcons.PlaylistAdd,
                                     null,
                                     modifier = Modifier.size(48.dp),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
@@ -200,7 +198,7 @@ private fun PlaylistPickerRow(playlist: PlaylistEntity, onClick: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Icon(
-                Icons.AutoMirrored.Rounded.QueueMusic,
+                HugeIcons.Playlist,
                 null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(22.dp)
@@ -210,6 +208,6 @@ private fun PlaylistPickerRow(playlist: PlaylistEntity, onClick: () -> Unit) {
                 style = MaterialTheme.typography.bodyLarge,
                 modifier = Modifier.weight(1f)
         )
-        Icon(Icons.Rounded.Add, "Add to playlist", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Icon(HugeIcons.Add, "Add to playlist", tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

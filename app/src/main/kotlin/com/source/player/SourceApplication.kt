@@ -2,15 +2,25 @@ package com.source.player
 
 import android.app.Application
 import android.util.Log
+import com.source.player.data.scanner.MediaStoreWatcher
 import dagger.hilt.android.HiltAndroidApp
 import java.io.File
+import javax.inject.Inject
 
 @HiltAndroidApp
 class SourceApplication : Application() {
 
+        /**
+         * Injected at the Application level so the MediaStore observer lives for the whole
+         * process, not just while a particular screen is composed — a file dropped in while
+         * the user sits on Settings still refreshes the library.
+         */
+        @Inject lateinit var mediaStoreWatcher: MediaStoreWatcher
+
         override fun onCreate() {
                 super.onCreate()
                 installCrashLogger()
+                mediaStoreWatcher.start()
         }
 
         /**

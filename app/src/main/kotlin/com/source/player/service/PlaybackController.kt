@@ -266,6 +266,34 @@ constructor(
     controller?.seekTo(positionMs)
   }
 
+  /**
+   * Tear playback down completely: the user swiped the mini player away, so the
+   * bar must disappear and stay gone. Clearing the media items is what actually
+   * hides it (the UI keys off [currentSong]), and the persisted queue has to go
+   * too or "Restore Playback" would bring it straight back on next launch.
+   */
+  fun stopAndClear() {
+    val sonos = sonosManager.activeDevice.value
+    if (sonos != null) {
+      scope.launch(Dispatchers.IO) { sonosManager.pause(sonos) }
+    }
+    stopPositionTicker()
+    scrobbleJob?.cancel()
+    controller?.apply {
+      stop()
+      clearMediaItems()
+    }
+    _currentSong.value = null
+    _queueItems.value = emptyList()
+    _queueIndex.value = 0
+    _positionMs.value = 0L
+    _durationMs.value = 0L
+    _isPlaying.value = false
+    // persistState() bails on an empty queue by design, so the saved state has
+    // to be dropped explicitly rather than left to the next tick.
+    scope.launch(Dispatchers.IO) { prefs.clearQueueState() }
+  }
+
   fun skipToNext() {
     val c = controller ?: return
     val sonos = sonosManager.activeDevice.value

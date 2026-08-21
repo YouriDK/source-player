@@ -10,9 +10,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -39,6 +36,7 @@ import com.source.player.data.db.entity.SongEntity
 import com.source.player.ui.components.Hairline
 import com.source.player.ui.components.MonoSize
 import com.source.player.ui.components.MonoText
+import com.source.player.ui.icons.HugeIcons
 import com.source.player.ui.theme.sourceColors
 import com.source.player.ui.theme.sourceText
 import com.source.player.ui.viewmodel.FoldersViewModel
@@ -90,7 +88,7 @@ fun FoldersScreen(
                                                         modifier = Modifier.size(32.dp),
                                                 ) {
                                                         Icon(
-                                                                Icons.AutoMirrored.Rounded.ArrowBack,
+                                                                HugeIcons.ArrowLeft,
                                                                 "Back",
                                                                 tint = colors.text,
                                                         )
@@ -125,14 +123,14 @@ fun FoldersScreen(
                                         BreadcrumbChip(
                                                 label = label,
                                                 selected = isLast,
-                                                leading = if (index == 0) Icons.Rounded.Folder else null,
+                                                leading = if (index == 0) HugeIcons.Folder else null,
                                                 onClick = {
                                                         if (!isLast) vm.navigateToBreadcrumb(index)
                                                 },
                                         )
                                         if (!isLast) {
                                                 Icon(
-                                                        Icons.Rounded.ChevronRight,
+                                                        HugeIcons.ChevronRight,
                                                         null,
                                                         modifier = Modifier.size(14.dp),
                                                         tint = colors.textMute,
@@ -188,7 +186,7 @@ fun FoldersScreen(
                                                                 }
                                                         ) {
                                                                 Icon(
-                                                                        Icons.Rounded.PlaylistAdd,
+                                                                        HugeIcons.PlaylistAdd,
                                                                         "Add Folder to Playlist",
                                                                         tint = colors.textDim,
                                                                 )
@@ -237,7 +235,7 @@ fun FoldersScreen(
                                                                 Alignment.CenterHorizontally,
                                                 ) {
                                                         Icon(
-                                                                Icons.Rounded.FolderOff,
+                                                                HugeIcons.FolderOff,
                                                                 null,
                                                                 modifier = Modifier.size(48.dp),
                                                                 tint = colors.textMute,
@@ -276,7 +274,7 @@ fun FoldersScreen(
                                         headlineContent = {
                                                 Text("New playlist", style = text.trackTitle22)
                                         },
-                                        leadingContent = { Icon(Icons.Rounded.Add, "Add") },
+                                        leadingContent = { Icon(HugeIcons.Add, "Add") },
                                         modifier =
                                                 Modifier.clickable {
                                                         showPlaylistSheet = false
@@ -295,7 +293,7 @@ fun FoldersScreen(
                                                         },
                                                         leadingContent = {
                                                                 Icon(
-                                                                        Icons.Rounded.PlaylistPlay,
+                                                                        HugeIcons.PlaylistPlay,
                                                                         null,
                                                                 )
                                                         },
@@ -383,7 +381,7 @@ private fun FolderRow(folder: FolderItem, onClick: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
                 Icon(
-                        Icons.Rounded.Folder,
+                        HugeIcons.Folder,
                         null,
                         tint = colors.accent,
                         modifier = Modifier.size(32.dp),
@@ -433,7 +431,7 @@ private fun SongRowInFolder(song: SongEntity, onClick: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
                 Icon(
-                        Icons.Rounded.MusicNote,
+                        HugeIcons.MusicNote,
                         null,
                         tint = colors.textMute,
                         modifier = Modifier.size(18.dp),

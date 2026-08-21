@@ -16,20 +16,56 @@ val localProps = Properties().apply {
     if (f.exists()) load(f.inputStream())
 }
 
+// ---- Version ----------------------------------------------------------------
+// MAJOR.MINOR.PATCH lives in gradle.properties and nothing else declares it.
+// versionCode is derived so it always moves forward with the name; Play rejects
+// a reused or lowered code, and hand-maintaining both is how that happens.
+val appVersionName: String = providers.gradleProperty("source.version").get().trim()
+
+val versionParts = appVersionName.split(".")
+require(versionParts.size == 3 && versionParts.all { it.toIntOrNull() != null }) {
+    "source.version must be MAJOR.MINOR.PATCH (got '$appVersionName')"
+}
+val (vMajor, vMinor, vPatch) = versionParts.map(String::toInt)
+// The scheme packs minor and patch into two decimal digits each, so 2.6.100 and
+// 2.7.0 would collide silently. Fail the build instead of shipping a duplicate.
+require(vMinor < 100 && vPatch < 100) {
+    "source.version minor/patch must each stay under 100 (got '$appVersionName')"
+}
+val appVersionCode: Int = vMajor * 10000 + vMinor * 100 + vPatch
+
+// Short commit SHA, exposed through BuildConfig only — versionName stays clean
+// semver because that is what Play displays. Read through providers.exec so the
+// configuration cache tracks it instead of baking in a stale value, and degrade
+// to "unknown" outside a git checkout (source archives, shallow CI exports).
+val gitSha: String =
+    if (rootProject.file(".git").exists()) {
+        runCatching {
+            providers.exec {
+                commandLine("git", "rev-parse", "--short", "HEAD")
+                isIgnoreExitValue = true
+            }.standardOutput.asText.get().trim()
+        }.getOrNull()?.takeIf { it.isNotBlank() } ?: "unknown"
+    } else {
+        "unknown"
+    }
+
 android {
     namespace = "com.source.player"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.source.player"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 3
-        versionName = "2.6.0"
+        targetSdk = 36
+        versionCode = appVersionCode
+        versionName = appVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // Last.fm API credentials — sourced from local.properties, never from source code
+        buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
+
         buildConfigField("String", "LASTFM_API_KEY",
             "\"${localProps["lastfm.api_key"] ?: ""}\""
         )
@@ -112,7 +148,6 @@ dependencies {
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
-    implementation(libs.compose.material.icons)
     implementation(libs.compose.animation)
     implementation(libs.compose.foundation)
     implementation(libs.activity.compose)

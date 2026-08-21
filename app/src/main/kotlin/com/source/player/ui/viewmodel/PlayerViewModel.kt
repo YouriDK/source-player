@@ -52,6 +52,7 @@ constructor(
         fun play() = controller.play()
         fun pause() = controller.pause()
         fun seekTo(posMs: Long) = controller.seekTo(posMs)
+        fun dismissPlayback() = controller.stopAndClear()
         fun skipToNext() = controller.skipToNext()
         fun skipToPrevious() = controller.skipToPrevious()
         fun skipToQueueItem(index: Int) = controller.skipToQueueItem(index)

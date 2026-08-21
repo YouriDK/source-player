@@ -11,9 +11,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -30,6 +27,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
+import com.source.player.ui.icons.HugeIcons
 import com.source.player.ui.viewmodel.TagEditorViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -92,7 +90,7 @@ fun TagEditorScreen(
                     },
                     navigationIcon = {
                       IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                        Icon(HugeIcons.ArrowLeft, contentDescription = "Back")
                       }
                     },
                     actions = {
@@ -143,7 +141,7 @@ fun TagEditorScreen(
               )
             } else {
               Icon(
-                      Icons.Rounded.MusicNote,
+                      HugeIcons.MusicNote,
                       contentDescription = "Music",
                       tint = MaterialTheme.colorScheme.onSurfaceVariant,
                       modifier = Modifier.size(20.dp),
@@ -153,7 +151,7 @@ fun TagEditorScreen(
           TagTextField(
                   value = title,
                   onValueChange = { vm.title.value = it },
-                  trailingIcon = Icons.Rounded.Title,
+                  trailingIcon = HugeIcons.TextFont,
                   modifier = Modifier.weight(1f),
           )
         }
@@ -164,7 +162,7 @@ fun TagEditorScreen(
               label = "Artist",
               value = artist,
               onValueChange = { vm.artist.value = it },
-              trailingIcon = Icons.Rounded.Person,
+              trailingIcon = HugeIcons.Person,
               applyToFolder = applyArtist,
               onToggleChange = { vm.applyArtistToFolder.value = it },
               hasFolderSongs = hasFolderSongs,
@@ -175,7 +173,7 @@ fun TagEditorScreen(
               label = "Album",
               value = album,
               onValueChange = { vm.album.value = it },
-              trailingIcon = Icons.Rounded.Album,
+              trailingIcon = HugeIcons.Album,
               applyToFolder = applyAlbum,
               onToggleChange = { vm.applyAlbumToFolder.value = it },
               hasFolderSongs = hasFolderSongs,
@@ -187,7 +185,7 @@ fun TagEditorScreen(
                 label = "Year",
                 value = year,
                 onValueChange = { vm.year.value = it },
-                trailingIcon = Icons.Rounded.CalendarMonth,
+                trailingIcon = HugeIcons.Calendar,
                 applyToFolder = applyYear,
                 onToggleChange = { vm.applyYearToFolder.value = it },
                 hasFolderSongs = hasFolderSongs,
@@ -198,7 +196,7 @@ fun TagEditorScreen(
                 label = "Genre",
                 value = genre,
                 onValueChange = { vm.genre.value = it },
-                trailingIcon = Icons.Rounded.MusicNote,
+                trailingIcon = HugeIcons.MusicNote,
                 applyToFolder = applyGenre,
                 onToggleChange = { vm.applyGenreToFolder.value = it },
                 hasFolderSongs = hasFolderSongs,
@@ -358,7 +356,7 @@ private fun ImpactedSongsSection(
                   contentAlignment = Alignment.Center,
           ) {
             Icon(
-                    Icons.Rounded.MusicNote,
+                    HugeIcons.MusicNote,
                     contentDescription = "Song",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(16.dp),
@@ -381,7 +379,7 @@ private fun ImpactedSongsSection(
             )
           }
           Icon(
-                  Icons.Rounded.CheckCircle,
+                  HugeIcons.CheckCircle,
                   contentDescription = "In folder",
                   tint = MaterialTheme.colorScheme.primary,
                   modifier = Modifier.size(20.dp),

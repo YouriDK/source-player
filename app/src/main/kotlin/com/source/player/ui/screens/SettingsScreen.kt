@@ -9,8 +9,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -19,11 +17,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+import com.source.player.BuildConfig
 import com.source.player.service.AudioOutputDevice
 import com.source.player.service.DeviceCategory
+import com.source.player.ui.icons.HugeIcons
 import com.source.player.ui.theme.accentForHue
 import com.source.player.ui.viewmodel.AudioOutputViewModel
 import com.source.player.ui.viewmodel.LastFmLoginState
@@ -81,10 +82,10 @@ fun SettingsScreen(
     )
 
     SettingsSection("Appearance") {
-      SettingsSwitch("Dark Mode", Icons.Rounded.DarkMode, isDark) { vm.setDarkMode(it) }
+      SettingsSwitch("Dark Mode", HugeIcons.DarkMode, isDark) { vm.setDarkMode(it) }
       SettingsItem(
               "Accent Color",
-              Icons.Rounded.Palette,
+              HugeIcons.Palette,
               subtitle =
                       VinylHuePresets.firstOrNull { kotlin.math.abs(it.hue - accentHue) < 0.5f }
                               ?.label
@@ -93,26 +94,26 @@ fun SettingsScreen(
     }
 
     SettingsSection("Playback") {
-      SettingsSwitch("Gapless Playback", Icons.Rounded.GraphicEq, gapless) { vm.setGapless(it) }
-      SettingsSwitch("Audio Ducking", Icons.Rounded.VolumeDown, ducking) { vm.setAudioDucking(it) }
-      SettingsSwitch("Restore Playback", Icons.Rounded.RestartAlt, restore) {
+      SettingsSwitch("Gapless Playback", HugeIcons.Equalizer, gapless) { vm.setGapless(it) }
+      SettingsSwitch("Audio Ducking", HugeIcons.VolumeLow, ducking) { vm.setAudioDucking(it) }
+      SettingsSwitch("Restore Playback", HugeIcons.Restart, restore) {
         vm.setRestoreState(it)
       }
       SettingsItem(
               "Audio Output",
-              Icons.Rounded.Speaker,
+              HugeIcons.Speaker,
               subtitle = activeAudioDevice?.name ?: "System Default",
       ) { showAudioOutput = true }
     }
 
     SettingsSection("Last.fm") {
-      SettingsSwitch("Scrobbling", Icons.Rounded.Radio, scrobble) { vm.setScrobbling(it) }
+      SettingsSwitch("Scrobbling", HugeIcons.Radio, scrobble) { vm.setScrobbling(it) }
       SettingsItem(
               "Account",
-              Icons.Rounded.AccountCircle,
+              HugeIcons.Account,
               subtitle = if (!lastFmUser.isNullOrBlank()) "@$lastFmUser" else "Connect Last.fm",
       ) { showLastFmModal = true }
-      SettingsItem("Image Download", Icons.Rounded.Image, subtitle = artPolicy) {
+      SettingsItem("Image Download", HugeIcons.Image, subtitle = artPolicy) {
         val next =
                 when (artPolicy) {
                   "NEVER" -> "WIFI"
@@ -124,15 +125,31 @@ fun SettingsScreen(
     }
 
     SettingsSection("Library & UX") {
-      SettingsSwitch("Remember Last Tab", Icons.Rounded.Bookmark, rememberTab) {
+      SettingsSwitch("Remember Last Tab", HugeIcons.Bookmark, rememberTab) {
         vm.setRememberLastTab(it)
       }
       SettingsItem(
               "Scan Library",
-              Icons.Rounded.Refresh,
+              HugeIcons.Refresh,
               subtitle = scanProgress ?: "Tap to rescan your music library",
       ) { if (scanProgress == null) vm.scanLibrary() }
     }
+
+    Spacer(Modifier.height(24.dp))
+    Text(
+            // The SHA is developer-facing noise on a shipped build; release
+            // shows clean semver, debug carries the commit it was cut from.
+            text =
+                    "Source \u2014 v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})" +
+                            if (BuildConfig.DEBUG) " \u00B7 ${BuildConfig.GIT_SHA}" else "",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+    )
+    // Mini player floats over the bottom of the content area — same 96.dp
+    // clearance the Library / Folders / Search lists reserve for it.
+    Spacer(Modifier.height(96.dp))
   }
 
   if (showColorPicker) {
@@ -230,7 +247,7 @@ fun SettingsItem(title: String, icon: ImageVector, subtitle: String? = null, onC
           leadingContent = { Icon(icon, title, tint = MaterialTheme.colorScheme.primary) },
           trailingContent = {
             Icon(
-                    Icons.Rounded.ChevronRight,
+                    HugeIcons.ChevronRight,
                     null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -291,7 +308,7 @@ fun AccentHueSheet(
           ) {
             if (selected) {
               Icon(
-                      Icons.Rounded.Check,
+                      HugeIcons.Check,
                       null,
                       tint = Color.White,
                       modifier = Modifier.size(18.dp),
@@ -464,7 +481,7 @@ fun AudioOutputSheet(
             )
           } else {
             Icon(
-                    Icons.Rounded.Refresh,
+                    HugeIcons.Refresh,
                     contentDescription = "Scan for devices",
                     tint = MaterialTheme.colorScheme.primary,
             )
@@ -524,7 +541,7 @@ fun AudioOutputSheet(
                     trailingContent = {
                       if (isActive) {
                         Icon(
-                                Icons.Rounded.Check,
+                                HugeIcons.Check,
                                 contentDescription = "Active",
                                 tint = MaterialTheme.colorScheme.primary,
                         )
@@ -588,11 +605,11 @@ private fun deviceSubtitle(device: AudioOutputDevice): String {
 @Composable
 private fun deviceIcon(category: DeviceCategory): ImageVector =
         when (category) {
-          DeviceCategory.BUILTIN -> Icons.Rounded.SpeakerPhone
-          DeviceCategory.WIRED -> Icons.Rounded.Headphones
-          DeviceCategory.BLUETOOTH -> Icons.Rounded.Bluetooth
-          DeviceCategory.WIFI -> Icons.Rounded.Wifi
-          DeviceCategory.USB -> Icons.Rounded.Usb
-          DeviceCategory.HDMI -> Icons.Rounded.SettingsInputHdmi
-          DeviceCategory.OTHER -> Icons.Rounded.SpeakerGroup
+          DeviceCategory.BUILTIN -> HugeIcons.Phone
+          DeviceCategory.WIRED -> HugeIcons.Headphones
+          DeviceCategory.BLUETOOTH -> HugeIcons.Bluetooth
+          DeviceCategory.WIFI -> HugeIcons.Wifi
+          DeviceCategory.USB -> HugeIcons.Usb
+          DeviceCategory.HDMI -> HugeIcons.Tv
+          DeviceCategory.OTHER -> HugeIcons.SpeakerGroup
         }
