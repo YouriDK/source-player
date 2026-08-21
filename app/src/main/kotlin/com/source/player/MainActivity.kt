@@ -16,14 +16,20 @@ import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.lifecycleScope
+import com.source.player.data.scanner.MediaScanner
 import com.source.player.ui.navigation.SourceNavHost
 import com.source.player.ui.theme.SourceTheme
 import com.source.player.ui.viewmodel.SettingsViewModel
 import dagger.hilt.android.AndroidEntryPoint
 import java.io.File
+import javax.inject.Inject
+import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+  @Inject lateinit var scanner: MediaScanner
 
   /**
    * Single launcher for all runtime permissions. The launcher is registered unconditionally
@@ -50,6 +56,32 @@ class MainActivity : ComponentActivity() {
       val accentHue by settingsVm.accentHue.collectAsState()
       SourceTheme(darkTheme = isDark, accentHue = accentHue) { SourceNavHost() }
     }
+  }
+
+  /**
+   * Catches up on anything that changed while the app was away. [MediaScanner.scanIfStale]
+   * compares MediaStore's version/generation against the stamp left by the last scan, so a
+   * foreground with nothing new costs one cheap query and no DB writes — while files added
+   * or re-tagged in another app show up without the user hitting Scan.
+   *
+   * Complements [com.source.player.data.scanner.MediaStoreWatcher], which covers changes
+   * happening while the app is in the foreground.
+   */
+  override fun onStart() {
+    super.onStart()
+    if (!hasAudioPermission()) return
+    lifecycleScope.launch { scanner.scanIfStale() }
+  }
+
+  private fun hasAudioPermission(): Boolean {
+    val permission =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+              Manifest.permission.READ_MEDIA_AUDIO
+            } else {
+              Manifest.permission.READ_EXTERNAL_STORAGE
+            }
+    return ContextCompat.checkSelfPermission(this, permission) ==
+            PackageManager.PERMISSION_GRANTED
   }
 
   /**

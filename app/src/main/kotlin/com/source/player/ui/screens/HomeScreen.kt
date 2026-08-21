@@ -14,9 +14,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Lock
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
@@ -49,6 +46,7 @@ import com.source.player.ui.components.Hairline
 import com.source.player.ui.components.MonoSize
 import com.source.player.ui.components.MonoText
 import com.source.player.ui.components.SectionKicker
+import com.source.player.ui.icons.HugeIcons
 import com.source.player.ui.navigation.Routes
 import com.source.player.ui.theme.sourceColors
 import com.source.player.ui.theme.sourceText
@@ -302,7 +300,7 @@ private fun FeatureTrack(song: SongEntity, index: Int, onPlay: () -> Unit, onOpe
                             IconButtonDefaults.filledIconButtonColors(containerColor = colors.accent),
             ) {
                 Icon(
-                        Icons.Rounded.PlayArrow,
+                        HugeIcons.Play,
                         contentDescription = "Play",
                         tint = colors.bg,
                         modifier = Modifier.size(26.dp),
@@ -479,7 +477,7 @@ private fun EmptyLibrary(
                             horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         Icon(
-                                Icons.Rounded.Lock,
+                                HugeIcons.Lock,
                                 contentDescription = null,
                                 tint = colors.accent,
                                 modifier = Modifier.size(28.dp),

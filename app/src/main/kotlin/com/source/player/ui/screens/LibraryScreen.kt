@@ -22,10 +22,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
@@ -68,6 +64,7 @@ import com.source.player.ui.components.MonoText
 import com.source.player.ui.components.PillTab
 import com.source.player.ui.components.SectionKicker
 import com.source.player.ui.components.VerticalHairline
+import com.source.player.ui.icons.HugeIcons
 import com.source.player.ui.navigation.Routes
 import com.source.player.ui.theme.sourceColors
 import com.source.player.ui.theme.sourceText
@@ -352,10 +349,14 @@ private fun VinylSongsList(
                 contentPadding = PaddingValues(bottom = 96.dp),
         ) {
             itemsIndexed(songs, key = { _, s -> s.id }) { i, song ->
-                Hairline(modifier = Modifier.padding(horizontal = 24.dp))
+                // animateItem: rows fade and slide into place when the list changes —
+                // search filtering, a rescan adding tracks. Handled by the lazy layout
+                // itself, so it costs nothing while the list is static.
+                Hairline(modifier = Modifier.animateItem().padding(horizontal = 24.dp))
                 Row(
                         modifier =
-                                Modifier.fillMaxWidth()
+                                Modifier.animateItem()
+                                        .fillMaxWidth()
                                         .clickable { onSongClick(i) }
                                         .padding(horizontal = 24.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -426,7 +427,7 @@ private fun VinylAlbumsGrid(
             modifier = Modifier.fillMaxSize(),
     ) {
         items(albums, key = { it.id }, contentType = { "album" }) { album ->
-            Column(modifier = Modifier.clickable { onClick(album) }) {
+            Column(modifier = Modifier.animateItem().clickable { onClick(album) }) {
                 AsyncImage(
                         model = album.artUri,
                         contentDescription = null,
@@ -684,7 +685,7 @@ private fun VinylPlaylistsList(
                         onClick = { showDialog = true },
                         shape = RoundedCornerShape(100.dp),
                 ) {
-                    Icon(Icons.Rounded.Add, null)
+                    Icon(HugeIcons.Add, null)
                     Spacer(Modifier.width(4.dp))
                     Text("New", style = text.pillLabel12)
                 }
@@ -695,10 +696,11 @@ private fun VinylPlaylistsList(
                 contentPadding = PaddingValues(bottom = 96.dp),
         ) {
             itemsIndexed(playlists, key = { _, p -> p.id }) { _, playlist ->
-                Hairline(modifier = Modifier.padding(horizontal = 24.dp))
+                Hairline(modifier = Modifier.animateItem().padding(horizontal = 24.dp))
                 Row(
                         modifier =
-                                Modifier.fillMaxWidth()
+                                Modifier.animateItem()
+                                        .fillMaxWidth()
                                         .clickable { onClick(playlist) }
                                         .padding(horizontal = 24.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -760,10 +762,12 @@ private fun VinylGenresList(genres: List<GenreEntity>, query: String) {
             contentPadding = PaddingValues(bottom = 96.dp),
     ) {
         itemsIndexed(genres, key = { _, g -> g.id }) { _, genre ->
-            Hairline(modifier = Modifier.padding(horizontal = 24.dp))
+            Hairline(modifier = Modifier.animateItem().padding(horizontal = 24.dp))
             Row(
                     modifier =
-                            Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 14.dp),
+                            Modifier.animateItem()
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 24.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -845,7 +849,7 @@ private fun FloatingSearchBar(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Icon(
-                Icons.Rounded.Search,
+                HugeIcons.Search,
                 contentDescription = null,
                 tint = if (focused || query.isNotEmpty()) colors.accent else colors.textDim,
                 modifier = Modifier.size(18.dp),
@@ -893,7 +897,7 @@ private fun FloatingSearchBar(
                     contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                        Icons.Rounded.Close,
+                        HugeIcons.Close,
                         contentDescription = "Clear",
                         tint = colors.textDim,
                         modifier = Modifier.size(14.dp),

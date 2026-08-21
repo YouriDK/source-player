@@ -82,6 +82,8 @@ interface SongDao {
     for ((albumId, uri) in artByAlbumId) updateArtUriForAlbum(albumId, uri)
   }
 
+  @Query("SELECT * FROM songs") suspend fun getAllSongs(): List<SongEntity>
+
   @Query("SELECT id FROM songs") suspend fun getAllIds(): List<Long>
 
   @Query("DELETE FROM songs WHERE id IN (:ids)") suspend fun deleteByIds(ids: List<Long>)

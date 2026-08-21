@@ -9,13 +9,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.RemoveCircleOutline
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
@@ -51,6 +44,7 @@ import com.source.player.ui.components.Hairline
 import com.source.player.ui.components.MonoSize
 import com.source.player.ui.components.MonoText
 import com.source.player.ui.components.SectionKicker
+import com.source.player.ui.icons.HugeIcons
 import com.source.player.ui.theme.sourceColors
 import com.source.player.ui.theme.sourceText
 import com.source.player.ui.viewmodel.AlbumDetailViewModel
@@ -93,7 +87,7 @@ fun AlbumDetailScreen(
                         onClick = { navController.popBackStack() },
                         modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
                 ) {
-                    Icon(Icons.Rounded.KeyboardArrowDown, "Back", tint = Color.White)
+                    Icon(HugeIcons.ChevronDown, "Back", tint = Color.White)
                 }
             }
         }
@@ -128,7 +122,7 @@ fun AlbumDetailScreen(
                             onClick = { vm.playAll(songs) },
                             shape = RoundedCornerShape(100.dp),
                     ) {
-                        Icon(Icons.Rounded.PlayArrow, null, modifier = Modifier.size(18.dp))
+                        Icon(HugeIcons.Play, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
                         Text("Play", style = text.pillLabel12)
                     }
@@ -136,7 +130,7 @@ fun AlbumDetailScreen(
                             onClick = { vm.shuffle(songs) },
                             shape = RoundedCornerShape(100.dp),
                     ) {
-                        Icon(Icons.Rounded.Shuffle, null, modifier = Modifier.size(18.dp))
+                        Icon(HugeIcons.Shuffle, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
                         Text("Shuffle", style = text.pillLabel12)
                     }
@@ -217,7 +211,7 @@ fun ArtistDetailScreen(
             ) {
                 IconButton(onClick = { navController.popBackStack() }) {
                     Icon(
-                            Icons.Rounded.KeyboardArrowDown,
+                            HugeIcons.ChevronDown,
                             "Back",
                             tint = colors.text,
                     )
@@ -252,7 +246,7 @@ fun ArtistDetailScreen(
                 Spacer(Modifier.height(18.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(onClick = { vm.playAll() }, shape = RoundedCornerShape(100.dp)) {
-                        Icon(Icons.Rounded.PlayArrow, null, modifier = Modifier.size(18.dp))
+                        Icon(HugeIcons.Play, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
                         Text("Play", style = text.pillLabel12)
                     }
@@ -260,7 +254,7 @@ fun ArtistDetailScreen(
                             onClick = { vm.shuffle() },
                             shape = RoundedCornerShape(100.dp),
                     ) {
-                        Icon(Icons.Rounded.Shuffle, null, modifier = Modifier.size(18.dp))
+                        Icon(HugeIcons.Shuffle, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
                         Text("Shuffle", style = text.pillLabel12)
                     }
@@ -400,7 +394,7 @@ fun PlaylistDetailScreen(navController: NavController, playlistId: Long) {
                 ) {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(
-                                Icons.Rounded.KeyboardArrowDown,
+                                HugeIcons.ChevronDown,
                                 "Back",
                                 tint = colors.text,
                         )
@@ -433,7 +427,7 @@ fun PlaylistDetailScreen(navController: NavController, playlistId: Long) {
                                 onClick = { vm.playSongs() },
                                 shape = RoundedCornerShape(100.dp),
                         ) {
-                            Icon(Icons.Rounded.PlayArrow, null, modifier = Modifier.size(18.dp))
+                            Icon(HugeIcons.Play, null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("Play", style = text.pillLabel12)
                         }
@@ -441,7 +435,7 @@ fun PlaylistDetailScreen(navController: NavController, playlistId: Long) {
                                 onClick = { vm.shuffleSongs() },
                                 shape = RoundedCornerShape(100.dp),
                         ) {
-                            Icon(Icons.Rounded.Shuffle, null, modifier = Modifier.size(18.dp))
+                            Icon(HugeIcons.Shuffle, null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("Shuffle", style = text.pillLabel12)
                         }
@@ -449,7 +443,7 @@ fun PlaylistDetailScreen(navController: NavController, playlistId: Long) {
                                 onClick = { showAddSheet = true },
                                 shape = RoundedCornerShape(100.dp),
                         ) {
-                            Icon(Icons.Rounded.Add, null, modifier = Modifier.size(18.dp))
+                            Icon(HugeIcons.Add, null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("Add", style = text.pillLabel12)
                         }
@@ -518,7 +512,7 @@ fun PlaylistDetailScreen(navController: NavController, playlistId: Long) {
                         }
                         IconButton(onClick = { vm.removeSongFromPlaylist(song.id) }) {
                             Icon(
-                                    Icons.Rounded.RemoveCircleOutline,
+                                    HugeIcons.RemoveCircle,
                                     "Remove",
                                     tint = colors.textMute,
                                     modifier = Modifier.size(20.dp),
@@ -553,7 +547,7 @@ fun PlaylistDetailScreen(navController: NavController, playlistId: Long) {
                         value = searchQuery,
                         onValueChange = { vm.setSearchQuery(it) },
                         placeholder = { Text("Search songs\u2026") },
-                        leadingIcon = { Icon(Icons.Rounded.Search, null, tint = colors.textDim) },
+                        leadingIcon = { Icon(HugeIcons.Search, null, tint = colors.textDim) },
                         singleLine = true,
                         shape = CircleShape,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
@@ -602,7 +596,7 @@ fun PlaylistDetailScreen(navController: NavController, playlistId: Long) {
                                     )
                                 }
                                 Icon(
-                                        Icons.Rounded.Add,
+                                        HugeIcons.Add,
                                         null,
                                         tint = colors.accent,
                                         modifier = Modifier.size(20.dp),

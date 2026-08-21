@@ -2,6 +2,7 @@ package com.source.player.data.tag
 
 import android.content.ContentUris
 import android.content.Context
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.provider.MediaStore
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -104,6 +105,12 @@ constructor(
                             ?: return@withContext Result.failure(
                                     IllegalStateException("Could not write \"$originalPath\"")
                             )
+
+                    // 4. Re-index the file. Writing through the descriptor changes the bytes
+                    //    on disk but leaves MediaStore's cached title/artist/album columns on
+                    //    their pre-edit values — and the library scanner reads those columns,
+                    //    so without this the next scan would quietly undo the edit.
+                    MediaScannerConnection.scanFile(context, arrayOf(originalPath), null, null)
 
                     Result.success(Unit)
                 } catch (e: Exception) {

@@ -9,9 +9,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -40,6 +37,7 @@ import com.source.player.ui.components.Hairline
 import com.source.player.ui.components.MonoSize
 import com.source.player.ui.components.MonoText
 import com.source.player.ui.components.SectionKicker
+import com.source.player.ui.icons.HugeIcons
 import com.source.player.ui.navigation.Routes
 import com.source.player.ui.theme.oklchToColor
 import com.source.player.ui.theme.sourceColors
@@ -89,7 +87,7 @@ fun SearchScreen(
                 },
                 leadingIcon = {
                     Icon(
-                            Icons.Rounded.Search,
+                            HugeIcons.Search,
                             null,
                             tint = colors.textDim,
                             modifier = Modifier.size(16.dp),
@@ -98,7 +96,7 @@ fun SearchScreen(
                 trailingIcon = {
                     if (query.isNotEmpty()) {
                         IconButton(onClick = { vm.onQueryChange("") }) {
-                            Icon(Icons.Rounded.Close, "Clear", tint = colors.textDim)
+                            Icon(HugeIcons.Close, "Clear", tint = colors.textDim)
                         }
                     }
                 },
