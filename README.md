@@ -1,39 +1,50 @@
 # Source 🎵
 
-**Version:** 1.0.0
+**Version:** 2.6.0
 
-Source is a modern, native Android music player application. It is designed with a focus on beautiful aesthetics, smooth performance, and comprehensive local audio file management. 
+Source is a modern, native Android music player. It focuses on a clean interface, smooth performance, and complete management of your local audio library — no ads, no analytics, no tracking.
 
-## ✨ Main Features
-- **Local Audio Library Management:** Automatically scans and organizes your local music by Songs, Albums, Artists, and Genres.
-- **Folder Navigation:** Browse your device's filesystem directly to play music from specific directories.
-- **Advanced Playback:** Full-featured audio engine supporting smooth playback, precise seeking, and gapless transitions (powered by Androidx Media3/ExoPlayer).
-- **Queue Management:** Dynamic playback queue with seamless synchronization between player screens.
-- **Playlists:** Create and manage custom playlists.
-- **Search:** Quickly find songs, albums, and artists across your entire library.
-- **Tag Editor:** Edit song metadata (title, artist, album, etc.) directly from the app.
-- **Last.fm Integration:** Scrobble your listening history and connect your Last.fm account.
-- **Library Rescan:** Manually rescan your music library when new files are added or folders change.
-- **Customization:** Dark mode, accent color picker, and font selection to personalize your experience.
-- **Modern UI/UX:** Built entirely with Jetpack Compose featuring smooth animations, dynamic themes, and a responsive layout.
+## ✨ Features
 
-## 🛠️ Tech Stack & Tools Used
-This project was developed leveraging cutting-edge tools to accelerate design and development:
+### Library
+- **Local library management:** Automatically scans and organizes your music by Songs, Albums, Artists and Genres.
+- **Folder navigation:** Browse your device's filesystem directly to play music from specific directories.
+- **Search:** Instantly find songs, albums and artists across the whole library.
+- **Playlists:** Create and manage your own playlists.
+- **Tag editor:** Edit song metadata (title, artist, album, artwork…) straight from the app.
+- **Rescan:** Refresh the library manually when new files or folders appear.
 
-- **Design:** [Google Stitch](https://stitch.google.com/) for crafting a premium, pixel-perfect user interface.
-- **Development Environment:** Antigravity IDE.
-- **Core Technology:**
-  - 100% Kotlin
-  - UI: Jetpack Compose
-  - Audio Engine: Media3 / ExoPlayer
-  - Architecture: MVVM, Hilt (Dependency Injection), Coroutines
-  - Local Database: Room
+### Playback
+- **Media3 / ExoPlayer engine:** Smooth playback, precise seeking and gapless transitions.
+- **Queue management:** Dynamic queue kept in sync between the player, the mini-player and the queue screen.
+- **Mini-player:** Persistent playback bar with swipe-to-dismiss.
+- **Background playback:** Foreground media service with full notification and lock-screen controls.
 
-## 🚀 How to Install and Try
+### Multi-room & casting
+- **Sonos:** Discover and play to Sonos devices on the local network.
+- **Google Cast:** Send playback to Chromecast-enabled devices.
+- **Local HTTP server:** Streams your local files to those devices without any cloud upload.
+
+### Personalization
+- **Last.fm:** Connect your account and scrobble your listening history.
+- **Themes:** Dark mode, accent color picker and font selection.
+- **Material 3 UI:** Built entirely with Jetpack Compose — smooth animations, dynamic theming, responsive layout.
+
+## 🛠️ Tech stack
+
+- 100% Kotlin
+- UI: Jetpack Compose (Material 3, no XML layouts)
+- Architecture: MVVM, Hilt (dependency injection), Coroutines, StateFlow
+- Audio engine: Media3 / ExoPlayer
+- Local database: Room
+- Preferences: DataStore
+
+## 🚀 Build and run
 
 ### Prerequisites
-- [Android Studio](https://developer.android.com/studio) (Koala Feature Drop or newer) or Antigravity IDE.
-- A physical Android device (Android 8.0+ / API 26+) or an Android Emulator.
+- Android Studio (latest stable) with the Android SDK 36 platform installed.
+- JDK 17.
+- A physical Android device (Android 8.0+ / API 26+) or an emulator.
 
 ### Steps
 1. **Clone the repository:**
@@ -41,15 +52,25 @@ This project was developed leveraging cutting-edge tools to accelerate design an
    git clone <repository-url>
    cd source-player
    ```
-2. **Open the Project:**
-   - Launch Android Studio or Antigravity IDE.
-   - Select **Open** and choose the `source-player` folder.
-   - Wait for Gradle to perform the initial sync and download all necessary dependencies.
-3. **Build and Run:**
-   - Connect your Android device via USB (with USB Debugging enabled) or start an emulator.
-   - Click the green **Run 'app'** button (Play icon) in the top toolbar to build and install the APK.
-4. **Permissions:**
-   - Upon first launch, the app will request permission to access your audio files. Please grant it so the app can scan your local library.
+2. **Open the project:**
+   - In Android Studio, choose **Open** and select the `source-player` folder.
+   - Let Gradle sync and download the dependencies.
+3. **(Optional) Last.fm credentials:**
+   Add your keys to `local.properties` (git-ignored) to enable scrobbling:
+   ```properties
+   lastfm.api_key=YOUR_KEY
+   lastfm.api_secret=YOUR_SECRET
+   ```
+4. **Build and run:**
+   - Connect your device via USB (USB debugging enabled) or start an emulator.
+   - Run the `app` configuration, or from the command line:
+     ```bash
+     ./gradlew installDebug
+     ```
+5. **Permissions:**
+   On first launch, grant access to your audio files so the library can be scanned.
 
----
-*Created as part of the Source modernization effort.*
+## 📦 Versioning
+
+The version lives in a single place — `source.version` in `gradle.properties`, as `MAJOR.MINOR.PATCH`.
+`versionCode` is derived from it at build time, so it always moves forward with the version name.

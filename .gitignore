@@ -54,5 +54,8 @@ google-services.json
 
 # Custom ignored files
 BUGS.md
-
 CLAUDE.md
+ASSETS_STORE.md
+
+# Claude Code local settings
+.claude/
