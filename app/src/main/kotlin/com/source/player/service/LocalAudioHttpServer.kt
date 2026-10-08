@@ -5,9 +5,10 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
 import android.util.Log
-import com.source.player.data.smb.SmbAuthenticationException
-import com.source.player.data.smb.SmbClient
-import com.source.player.data.smb.SmbConfig
+import com.source.player.data.freebox.FreeboxAuthException
+import com.source.player.data.freebox.FreeboxClient
+import com.source.player.data.freebox.FreeboxPaths
+import com.source.player.data.freebox.api.FreeboxApiClient
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.ktor.http.*
 import io.ktor.http.content.OutgoingContent
@@ -18,18 +19,16 @@ import io.ktor.server.plugins.autohead.*
 import io.ktor.server.plugins.partialcontent.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.utils.io.ByteWriteChannel
-import io.ktor.utils.io.writeFully
+import io.ktor.utils.io.copyTo
 import java.io.File
-import java.io.FileNotFoundException
-import java.io.IOException
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 /**
  * Minimal HTTP server that serves local audio files over the LAN so that
@@ -45,16 +44,14 @@ class LocalAudioHttpServer
 @Inject
 constructor(
         @ApplicationContext private val context: Context,
-        private val smbClient: SmbClient,
+        private val freeboxClient: FreeboxClient,
+        private val freeboxApi: FreeboxApiClient,
 ) {
     companion object {
         const val PORT = 8888
         private val ALLOWED_EXTENSIONS = setOf("mp3", "flac", "m4a", "aac", "ogg", "oga", "wav", "opus", "wma")
         private const val TAG = "LocalAudioHttpServer"
-        private const val SMB_ROUTE = "smb"
-        private const val COPY_CHUNK = 64 * 1024
-
-        private val RANGE_REGEX = Regex("""^\s*bytes\s*=\s*(\d*)\s*-\s*(\d*)\s*$""", RegexOption.IGNORE_CASE)
+        private const val FBX_ROUTE = "fbx"
 
         private fun contentTypeFor(extension: String): ContentType =
                 when (extension.lowercase()) {
@@ -85,35 +82,6 @@ constructor(
             }
             return sb.toString()
         }
-
-        /**
-         * Parses a single `bytes=` range against [total]. Returns the inclusive range,
-         * null when there is no usable Range header (→ 200 full body), or throws
-         * [IllegalStateException] when the range is unsatisfiable (→ 416).
-         */
-        private fun parseRange(header: String?, total: Long): LongRange? {
-            if (header.isNullOrBlank()) return null
-            // Multi-range requests are not supported: serve the whole file.
-            if (header.contains(',')) return null
-            val m = RANGE_REGEX.matchEntire(header) ?: return null
-            val (startStr, endStr) = m.destructured
-            if (startStr.isEmpty() && endStr.isEmpty()) return null
-            val range =
-                    if (startStr.isEmpty()) {
-                        // Suffix range: last N bytes
-                        val n = endStr.toLongOrNull() ?: return null
-                        if (n <= 0 || total == 0L) error("unsatisfiable")
-                        (total - minOf(n, total))..(total - 1)
-                    } else {
-                        val start = startStr.toLongOrNull() ?: return null
-                        val end =
-                                if (endStr.isEmpty()) total - 1
-                                else minOf(endStr.toLongOrNull() ?: return null, total - 1)
-                        if (start >= total || start > end) error("unsatisfiable")
-                        start..end
-                    }
-            return range
-        }
     }
 
     private var engine: EmbeddedServer<*, *>? = null
@@ -140,9 +108,10 @@ constructor(
                             // Sonos probes URLs with HEAD before playing.
                             install(AutoHeadResponse)
                             routing {
-                                // Network-share tracks, proxied from SMB (Cast/Sonos can't
-                                // speak SMB). Declared first so it wins over the local route.
-                                get("/{token}/$SMB_ROUTE/{path...}") { serveSmb(call) }
+                                // Freebox disk tracks, proxied from the box's /dl/ endpoint
+                                // (Cast/Sonos can't send the session header). Declared
+                                // first so it wins over the local route.
+                                get("/{token}/$FBX_ROUTE/{path...}") { serveFreebox(call) }
                                 get("/{token}/{path...}") {
                                     // Validate access token
                                     val token = call.parameters["token"]
@@ -196,11 +165,13 @@ constructor(
     }
 
     /**
-     * Serves an `smb://` file with hand-rolled Range support: the reader seeks straight
-     * to the range start, whereas the PartialContent plugin would read and discard every
-     * byte before it (re-streaming a whole FLAC over SMB on each seek).
+     * Proxies an `fbx://` track from the Freebox `/dl/` endpoint, streaming the body
+     * without buffering. The client's Range header is forwarded verbatim and the box's
+     * status (200/206), Content-Length and Content-Range are passed back, so seeking
+     * costs one ranged request on the box. A 403 means the Freebox session expired: it
+     * is dropped and the request retried once.
      */
-    private suspend fun serveSmb(call: ApplicationCall) {
+    private suspend fun serveFreebox(call: ApplicationCall) {
         if (call.parameters["token"] != accessToken) {
             call.respond(HttpStatusCode.Forbidden)
             return
@@ -211,98 +182,109 @@ constructor(
             call.respond(HttpStatusCode.Forbidden)
             return
         }
-        val smbUrl = SmbConfig.SCHEME + segments.joinToString("/")
         val extension = segments.last().substringAfterLast('.', "").lowercase()
         if (extension !in ALLOWED_EXTENSIONS) {
             call.respond(HttpStatusCode.Forbidden)
             return
         }
+        val fbxUrl = FreeboxPaths.toUrl(segments.joinToString("/"))
+        val pathB64 = FreeboxPaths.toB64(fbxUrl)
+        val rangeHeader = call.request.headers[HttpHeaders.Range]
 
-        // Open once up front for the length and to map errors to a status code;
-        // the body is streamed by a fresh reader (HEAD never reaches writeTo()).
-        val total =
-                try {
-                    withContext(Dispatchers.IO) { smbClient.openReader(smbUrl).use { it.length } }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: IOException) {
-                    Log.w(TAG, "SMB open failed: ${e.javaClass.simpleName}: ${e.message}")
-                    call.respond(
-                            when (e) {
-                                is FileNotFoundException -> HttpStatusCode.NotFound
-                                is SmbAuthenticationException -> HttpStatusCode.Forbidden
-                                else -> HttpStatusCode.BadGateway
+        try {
+            repeat(2) { attempt ->
+                val access = freeboxClient.streamingAccess()
+                val sessionExpired =
+                        freeboxApi.openDownloadStream(
+                                access.base,
+                                access.sessionToken,
+                                pathB64,
+                                rangeHeader,
+                        ) { response ->
+                            if (response.status == HttpStatusCode.Forbidden && attempt == 0) {
+                                true
+                            } else {
+                                forwardFreeboxResponse(call, response, extension)
+                                false
                             }
-                    )
-                    return
-                }
+                        }
+                if (!sessionExpired) return
+                freeboxClient.dropSession()
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Freebox proxy failed: ${e.javaClass.simpleName}: ${e.message}")
+            // Once the body started streaming (client gone, box dropped) nothing can be sent.
+            if (!call.response.isCommitted) {
+                call.respond(
+                        if (e is FreeboxAuthException) HttpStatusCode.Forbidden
+                        else HttpStatusCode.BadGateway
+                )
+            }
+        }
+    }
 
-        val range =
-                try {
-                    parseRange(call.request.headers[HttpHeaders.Range], total)
-                } catch (_: IllegalStateException) {
-                    call.response.header(HttpHeaders.ContentRange, "bytes */$total")
-                    call.respond(HttpStatusCode.RequestedRangeNotSatisfiable)
-                    return
+    private suspend fun forwardFreeboxResponse(
+            call: ApplicationCall,
+            response: HttpResponse,
+            extension: String,
+    ) {
+        val status = response.status
+        if (!status.isSuccess()) {
+            when (status) {
+                HttpStatusCode.Forbidden, HttpStatusCode.NotFound -> call.respond(status)
+                HttpStatusCode.RequestedRangeNotSatisfiable -> {
+                    response.headers[HttpHeaders.ContentRange]?.let {
+                        call.response.header(HttpHeaders.ContentRange, it)
+                    }
+                    call.respond(status)
                 }
-        val start = range?.first ?: 0L
-        val length = if (range != null) range.last - range.first + 1 else total
-
+                else -> {
+                    Log.w(TAG, "Freebox /dl/ answered HTTP ${status.value}")
+                    call.respond(HttpStatusCode.BadGateway)
+                }
+            }
+            return
+        }
+        val contentRange = response.headers[HttpHeaders.ContentRange]
+        val length = response.headers[HttpHeaders.ContentLength]?.toLongOrNull()
         call.respond(
                 object : OutgoingContent.WriteChannelContent() {
                     override val status: HttpStatusCode =
-                            if (range != null) HttpStatusCode.PartialContent else HttpStatusCode.OK
+                            if (status == HttpStatusCode.PartialContent) HttpStatusCode.PartialContent
+                            else HttpStatusCode.OK
                     override val contentType: ContentType = contentTypeFor(extension)
-                    override val contentLength: Long = length
+                    override val contentLength: Long? = length
                     override val headers: Headers =
                             Headers.build {
                                 append(HttpHeaders.AcceptRanges, "bytes")
-                                if (range != null) {
-                                    append(
-                                            HttpHeaders.ContentRange,
-                                            "bytes ${range.first}-${range.last}/$total",
-                                    )
-                                }
+                                contentRange?.let { append(HttpHeaders.ContentRange, it) }
                             }
 
                     override suspend fun writeTo(channel: ByteWriteChannel) {
-                        withContext(Dispatchers.IO) {
-                            val reader = smbClient.openReader(smbUrl)
-                            try {
-                                reader.seek(start)
-                                val buf = ByteArray(COPY_CHUNK)
-                                var remaining = length
-                                while (remaining > 0) {
-                                    val n = reader.read(buf, 0, minOf(COPY_CHUNK.toLong(), remaining).toInt())
-                                    if (n <= 0) break
-                                    channel.writeFully(buf, 0, n)
-                                    remaining -= n
-                                }
-                            } finally {
-                                runCatching { reader.close() }
-                            }
-                        }
+                        response.bodyAsChannel().copyTo(channel)
                     }
                 }
         )
     }
 
     /**
-     * Returns the HTTP URL for a local file path — or an `smb://` URL, proxied by this
+     * Returns the HTTP URL for a local file path — or an `fbx://` URL, proxied by this
      * server — accessible from other devices on the LAN.
      */
     fun getUrl(filePath: String): String? {
         // Cache the IP: Cast handover calls getUrl() once per queue item, and each
         // getDeviceIp() enumerates every network interface via syscalls.
         val ip = cachedIp ?: getDeviceIp()?.also { cachedIp = it } ?: return null
-        if (SmbConfig.isSmbUrl(filePath)) {
-            // smb URLs are raw (never percent-encoded); encode each segment strictly per
+        if (FreeboxPaths.isFreeboxUrl(filePath)) {
+            // fbx URLs are raw (never percent-encoded); encode each segment strictly per
             // RFC 3986 so Cast/Sonos re-request a URL ktor decodes back to the exact original.
             val encoded =
-                    filePath.substring(SmbConfig.SCHEME.length)
+                    FreeboxPaths.toDisplayPath(filePath)
                             .split("/")
                             .joinToString("/") { encodePathSegment(it) }
-            return "http://$ip:$PORT/$accessToken/$SMB_ROUTE/$encoded"
+            return "http://$ip:$PORT/$accessToken/$FBX_ROUTE/$encoded"
         }
         val encoded = filePath.split("/").joinToString("/") { java.net.URLEncoder.encode(it, "UTF-8") }
         return "http://$ip:$PORT/$accessToken/$encoded"

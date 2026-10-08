@@ -16,7 +16,7 @@ import com.source.player.data.db.entity.*
                         PlaylistSongEntity::class,
                         BlacklistedFolderEntity::class,
                 ],
-        version = 3,
+        version = 2,
         exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {

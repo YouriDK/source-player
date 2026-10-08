@@ -24,8 +24,7 @@ leakcanary              = "2.14"
 mediarouter             = "1.7.0"
 play-services-cast      = "21.5.0"
 jaudiotagger            = "3.0.1"
-jcifs-ng                = "2.1.10"
-slf4j                   = "2.0.16"
+security-crypto         = "1.1.0-alpha06"
 
 [libraries]
 # Core
@@ -91,9 +90,8 @@ ktor-client-logging         = { group = "io.ktor",                          name
 # Audio tag writing (ID3 / Vorbis / MP4) — used by the tag editor to persist edits to files
 jaudiotagger                = { group = "net.jthink",                       name = "jaudiotagger",                     version.ref = "jaudiotagger" }
 
-# SMB/CIFS client (Freebox Server / NAS library source)
-jcifs-ng                    = { group = "eu.agno3.jcifs",                   name = "jcifs-ng",                         version.ref = "jcifs-ng" }
-slf4j-nop                   = { group = "org.slf4j",                        name = "slf4j-nop",                        version.ref = "slf4j" }
+# Encrypted storage for the Freebox app_token
+androidx-security-crypto    = { group = "androidx.security",                name = "security-crypto",                  version.ref = "security-crypto" }
 
 # DataStore
 datastore-preferences       = { group = "androidx.datastore",               name = "datastore-preferences",            version.ref = "datastore" }

@@ -18,7 +18,6 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.lifecycleScope
 import com.source.player.data.scanner.MediaScanner
-import com.source.player.data.smb.SmbScanner
 import com.source.player.ui.navigation.SourceNavHost
 import com.source.player.ui.theme.SourceTheme
 import com.source.player.ui.viewmodel.SettingsViewModel
@@ -31,7 +30,6 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
 
   @Inject lateinit var scanner: MediaScanner
-  @Inject lateinit var smbScanner: SmbScanner
 
   /**
    * Single launcher for all runtime permissions. The launcher is registered unconditionally
@@ -71,8 +69,6 @@ class MainActivity : ComponentActivity() {
    */
   override fun onStart() {
     super.onStart()
-    // Network share: needs no storage permission; own launch so it never delays the local scan
-    lifecycleScope.launch { smbScanner.scanIfStale() }
     if (!hasAudioPermission()) return
     lifecycleScope.launch { scanner.scanIfStale() }
   }

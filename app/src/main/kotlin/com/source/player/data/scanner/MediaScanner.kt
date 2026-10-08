@@ -5,6 +5,7 @@ import android.database.Cursor
 import android.provider.MediaStore
 import com.source.player.data.db.dao.*
 import com.source.player.data.db.entity.*
+import com.source.player.data.lastfm.LastFmRepository
 import com.source.player.data.preferences.AppPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
@@ -35,7 +37,7 @@ constructor(
         private val artistDao: ArtistDao,
         private val genreDao: GenreDao,
         private val blacklistDao: BlacklistDao,
-        private val artEnricher: AlbumArtEnricher,
+        private val lastFm: LastFmRepository,
         private val prefs: AppPreferences,
 ) {
         private val scanMutex = Mutex()
@@ -302,10 +304,7 @@ constructor(
                         // What the DB held before this pass — used below to tell
                         // "nothing moved" from "tags/files actually changed", which
                         // decides whether cached artwork has to be dropped.
-                        // Scoped to MediaStore rows: SMB-indexed rows are owned by the
-                        // network scanner and must never be compared or deleted here.
-                        val previous =
-                                songDao.getAllBySource(SOURCE_LOCAL).associateBy { it.id }
+                        val previous = songDao.getAllSongs().associateBy { it.id }
 
                         // Batch upsert — fast single transaction per type
                         songDao.upsertAll(songs)
@@ -321,16 +320,16 @@ constructor(
                         // where every DB row is an orphan (library deleted, SD card
                         // pulled), and skipping it left the UI showing ghost tracks.
                         val activeIds = songs.mapTo(HashSet()) { it.id }
-                        deleteOrphans(songDao.getIdsBySource(SOURCE_LOCAL), activeIds) {
+                        deleteOrphans(songDao.getAllIds(), activeIds) {
                                 songDao.deleteByIds(it)
                         }
-                        deleteOrphans(albumDao.getIdsBySource(SOURCE_LOCAL), albums.keys) {
+                        deleteOrphans(albumDao.getAllIds(), albums.keys) {
                                 albumDao.deleteByIds(it)
                         }
-                        deleteOrphans(artistDao.getIdsBySource(SOURCE_LOCAL), artists.keys) {
+                        deleteOrphans(artistDao.getAllIds(), artists.keys) {
                                 artistDao.deleteByIds(it)
                         }
-                        deleteOrphans(genreDao.getIdsBySource(SOURCE_LOCAL), genreEntities.keys) {
+                        deleteOrphans(genreDao.getAllIds(), genreEntities.keys) {
                                 genreDao.deleteByIds(it)
                         }
 
@@ -357,7 +356,7 @@ constructor(
 
                         // Online art enrichment — after the scan is reported complete
                         // so the UI isn't stuck in "Scanning…" through network fetches
-                        artEnricher.enrich(albums.values, ::hasMediaStoreArt)
+                        enrichAlbumArtFromLastFm(songs, albums)
                 } catch (e: SecurityException) {
                         // Permission not granted — fail gracefully, UI shows Grant
                         // Permission card
@@ -492,17 +491,70 @@ private fun buildSongGenreMap(): Map<Long, GenreRef> {
                 orphans.chunked(500).forEach { deleteByIds(it) }
         }
 
-        /** True when MediaStore serves embedded/folder art for this album. */
-        private fun hasMediaStoreArt(album: AlbumEntity): Boolean {
-                val localUri =
-                        android.net.Uri.parse(
-                                "content://media/external/audio/albumart/${album.id}"
+        /**
+         * Post-scan: for each album with no local embedded art, fetch from Last.fm. Respects the
+         * artDownloadPolicy pref (NEVER skips everything). Makes exactly one API call per album —
+         * not per song. Updates both songs and albums tables with the fetched URL.
+         */
+        private suspend fun enrichAlbumArtFromLastFm(
+                songs: List<SongEntity>,
+                albums: Map<Long, AlbumEntity>,
+        ) {
+                val policy = prefs.artDownloadPolicy.firstOrNull() ?: "NEVER"
+                if (policy == "NEVER") return
+                if (policy == "WIFI" && !isOnUnmeteredNetwork()) return
+
+                // Determine albums that have no valid local art by probing ContentResolver
+                val resolver = context.contentResolver
+                val albumsNeedingArt =
+                        albums.values.filter { album ->
+                                val localUri =
+                                        android.net.Uri.parse(
+                                                "content://media/external/audio/albumart/${album.id}"
+                                        )
+                                try {
+                                        resolver.openInputStream(localUri)?.use { true } == null
+                                } catch (_: Exception) {
+                                        true // no local art
+                                }
+                        }
+
+                val fetched = mutableMapOf<Long, String>() // albumId → art URL
+                for (album in albumsNeedingArt) {
+                        val artist = album.artist.takeIf { it != "<Unknown>" } ?: continue
+                        val title = album.title.takeIf { it != "<Unknown>" } ?: continue
+
+                        val url = lastFm.fetchAlbumArt(artist, title) ?: continue
+                        fetched[album.id] = url
+
+                        android.util.Log.d(
+                                "MediaScanner",
+                                "Fetched Last.fm art for \"$title\" by $artist"
                         )
-                return try {
-                        context.contentResolver.openInputStream(localUri)?.use { true } != null
-                } catch (_: Exception) {
-                        false // no local art
                 }
+                if (fetched.isEmpty()) return
+
+                // Two batched writes (one per table) → two Room invalidations total,
+                // instead of one per song plus one per album. Every live library Flow
+                // re-queries on each invalidation, so this is what keeps a post-scan
+                // enrichment from turning into hundreds of full-library re-emissions.
+                songDao.updateAlbumArtBatch(fetched)
+                albumDao.upsertAll(
+                        albumsNeedingArt.mapNotNull { album ->
+                                fetched[album.id]?.let { album.copy(artUri = it) }
+                        }
+                )
+        }
+
+        private fun isOnUnmeteredNetwork(): Boolean {
+                val cm =
+                        context.getSystemService(Context.CONNECTIVITY_SERVICE)
+                                as? android.net.ConnectivityManager
+                                ?: return false
+                val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
+                return caps.hasCapability(
+                        android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED
+                )
         }
 
         companion object {

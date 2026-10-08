@@ -1,14 +1,8 @@
 package com.source.player.data.db.entity
 
-import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
-
-/** Library source of a song/album/artist/genre row: MediaStore (on-device) files. */
-const val SOURCE_LOCAL = "local"
-/** Library source of a row indexed from an SMB/CIFS share; `SongEntity.path` is an `smb://` URL. */
-const val SOURCE_SMB = "smb"
 
 @Entity(
         tableName = "songs",
@@ -20,7 +14,6 @@ const val SOURCE_SMB = "smb"
                         Index("dateAdded"),
                         Index("genre"),
                         Index("folderPath"),
-                        Index("source"),
                 ]
 )
 data class SongEntity(
@@ -39,10 +32,9 @@ data class SongEntity(
         val albumArtUri: String?,
         val folderPath: String,
         val size: Long, // bytes
-        @ColumnInfo(defaultValue = SOURCE_LOCAL) val source: String = SOURCE_LOCAL,
 )
 
-@Entity(tableName = "albums", indices = [Index("artistId"), Index("title"), Index("source")])
+@Entity(tableName = "albums", indices = [Index("artistId"), Index("title")])
 data class AlbumEntity(
         @PrimaryKey val id: Long,
         val title: String,
@@ -51,24 +43,21 @@ data class AlbumEntity(
         val year: Int,
         val artUri: String?,
         val songCount: Int,
-        @ColumnInfo(defaultValue = SOURCE_LOCAL) val source: String = SOURCE_LOCAL,
 )
 
-@Entity(tableName = "artists", indices = [Index("name"), Index("source")])
+@Entity(tableName = "artists", indices = [Index("name")])
 data class ArtistEntity(
         @PrimaryKey val id: Long,
         val name: String,
         val albumCount: Int,
         val songCount: Int,
-        @ColumnInfo(defaultValue = SOURCE_LOCAL) val source: String = SOURCE_LOCAL,
 )
 
-@Entity(tableName = "genres", indices = [Index("name"), Index("source")])
+@Entity(tableName = "genres", indices = [Index("name")])
 data class GenreEntity(
         @PrimaryKey val id: Long,
         val name: String,
         val songCount: Int,
-        @ColumnInfo(defaultValue = SOURCE_LOCAL) val source: String = SOURCE_LOCAL,
 )
 
 @Entity(tableName = "playlists")

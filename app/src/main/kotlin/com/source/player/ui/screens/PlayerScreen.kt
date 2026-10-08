@@ -351,7 +351,9 @@ fun PlayerScreen(
                 // Keyed on the artwork URI so a track change cross-dissolves the two
                 // covers instead of snapping; identical URIs (same album) don't animate.
                 AnimatedContent(
-                        targetState = song?.mediaMetadata?.artworkUri,
+                        // Freebox streams carry their embedded cover as artworkData (no URI).
+                        targetState =
+                                song?.mediaMetadata?.let { it.artworkUri ?: it.artworkData },
                         // A swipe is already a transition: the card carries the
                         // change, so the content swaps instantly while it sits
                         // off-screen at alpha 0. Dissolving as well would replay
@@ -367,9 +369,9 @@ fun PlayerScreen(
                         },
                         label = "artwork",
                         modifier = Modifier.fillMaxWidth(0.58f).aspectRatio(1f),
-                ) { artworkUri ->
+                ) { artwork ->
                     AsyncImage(
-                            model = artworkUri,
+                            model = artwork,
                             contentDescription = null,
                             contentScale = ContentScale.Crop,
                             modifier =
@@ -417,8 +419,8 @@ fun PlayerScreen(
                                     Modifier.clickable(
                                             enabled =
                                                     songId != null &&
-                                                            !com.source.player.data.smb.SmbConfig.isSmbUrl(
-                                                                    song?.localConfiguration?.uri?.toString()
+                                                            !com.source.player.data.freebox.FreeboxPaths.isFreeboxUrl(
+                                                                    song?.mediaId
                                                             )
                                     ) {
                                         songId?.let {

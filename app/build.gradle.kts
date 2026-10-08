@@ -241,12 +241,9 @@ dependencies {
     // Audio tag writing (tag editor)
     implementation(libs.jaudiotagger)
 
-    // SMB/CIFS network library (Freebox Server / NAS)
-    implementation(libs.jcifs.ng)
-    implementation(libs.slf4j.nop) // silences "no SLF4J providers" (jcifs-ng, ktor)
-
     // DataStore
     implementation(libs.datastore.preferences)
+    implementation(libs.androidx.security.crypto) // Freebox app_token at rest
 
     // Coroutines
     implementation(libs.coroutines.android)

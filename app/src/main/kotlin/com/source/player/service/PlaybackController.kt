@@ -3,12 +3,14 @@ package com.source.player.service
 import android.content.ComponentName
 import android.content.Context
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.source.player.data.db.dao.SongDao
 import com.source.player.data.db.entity.SongEntity
+import com.source.player.data.freebox.FreeboxPaths
 import com.source.player.data.lastfm.LastFmRepository
 import com.source.player.data.preferences.AppPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -375,6 +377,12 @@ constructor(
     controller?.addMediaItem(insertIndex, songEntityToMediaItem(song))
   }
 
+  /** Plays [item] right after the current one (e.g. a Freebox track built by the browser). */
+  fun addNextToQueue(item: MediaItem) {
+    val insertIndex = (controller?.currentMediaItemIndex ?: 0) + 1
+    controller?.addMediaItem(insertIndex, item)
+  }
+
   private fun songEntityToMediaItem(song: SongEntity): MediaItem =
           MediaItem.Builder()
                   .setMediaId(song.id.toString())
@@ -423,6 +431,36 @@ constructor(
               item?.let { startScrobbleSession(it) }
               persistState()
             }
+            /**
+             * Freebox tracks reach the player with only their file name as title: the
+             * real tags (ID3 / Vorbis / FLAC title, artist, album, embedded picture) are
+             * only known once ExoPlayer has read the stream. Merge them into the current
+             * item so the player and queue show them. Embedded covers arrive as
+             * artworkData with a null artworkUri — the player UI falls back to
+             * artworkData in that case.
+             *
+             * ExoPlayer lets the MediaItem's own metadata win over stream tags, so the
+             * stream title would never beat the file-name title here alone:
+             * [FreeboxStreamTags] (service side) also writes the tags into the item
+             * itself, which then arrives through this callback / onTimelineChanged.
+             */
+            override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
+              val c = controller ?: return
+              val item = c.currentMediaItem ?: return
+              val uri = item.localConfiguration?.uri?.toString() ?: item.mediaId
+              if (!FreeboxPaths.isFreeboxUrl(uri)) return
+              val base = item.mediaMetadata
+              val merged = FreeboxStreamTags.mergeStreamTags(base, mediaMetadata)
+              val updated =
+                      if (merged == base) item else item.buildUpon().setMediaMetadata(merged).build()
+              if (_currentSong.value == updated) return
+              _currentSong.value = updated
+              val index = c.currentMediaItemIndex
+              val queue = _queueItems.value
+              if (index in queue.indices && queue[index].mediaId == item.mediaId) {
+                _queueItems.value = queue.toMutableList().also { it[index] = updated }
+              }
+            }
             override fun onRepeatModeChanged(repeatMode: Int) {
               _repeatMode.value = repeatMode
             }
@@ -440,6 +478,12 @@ constructor(
                 items.add(c.getMediaItemAt(i))
               }
               _queueItems.value = items
+              // A replaced current item (Freebox stream tags) keeps its mediaId but not
+              // its metadata: refresh the now-playing state too.
+              val current = c.currentMediaItem
+              if (current != null && current.mediaId == _currentSong.value?.mediaId) {
+                _currentSong.value = current
+              }
               persistState()
             }
             override fun onEvents(player: Player, events: Player.Events) {
@@ -517,6 +561,7 @@ constructor(
     val index = controller?.currentMediaItemIndex ?: 0
     val pos = controller?.currentPosition ?: 0L
     scope.launch(Dispatchers.Default) {
+      // Freebox items (mediaId = fbx:// url) are not persisted across restarts.
       val ids = items.mapNotNull { it.mediaId.toLongOrNull() }.joinToString(",")
       if (ids.isBlank()) return@launch
       prefs.saveQueueState(ids, index, pos)
@@ -630,7 +675,7 @@ constructor(
 
   private suspend fun sendMediaItemToSonos(device: SonosDevice, item: MediaItem) {
     val uri = item.localConfiguration?.uri?.toString() ?: return
-    // smb:// URLs pass through unchanged; LocalAudioHttpServer.getUrl() proxies them.
+    // fbx:// URLs pass through unchanged; LocalAudioHttpServer.getUrl() proxies them.
     val path = if (uri.startsWith("file://")) uri.removePrefix("file://") else uri
     val title = item.mediaMetadata.title?.toString() ?: "Unknown Track"
     lastSonosTrackId = item.mediaId

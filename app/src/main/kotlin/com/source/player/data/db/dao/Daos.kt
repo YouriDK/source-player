@@ -91,17 +91,6 @@ interface SongDao {
   @Query("DELETE FROM songs") suspend fun deleteAll()
 
   @Query("SELECT COUNT(*) FROM songs") suspend fun count(): Int
-
-  @Query("SELECT id FROM songs WHERE source = :source")
-  suspend fun getIdsBySource(source: String): List<Long>
-
-  @Query("SELECT * FROM songs WHERE source = :source")
-  suspend fun getAllBySource(source: String): List<SongEntity>
-
-  @Query("SELECT COUNT(*) FROM songs WHERE source = :source")
-  fun countBySourceFlow(source: String): Flow<Int>
-
-  @Query("DELETE FROM songs WHERE source = :source") suspend fun deleteBySource(source: String)
 }
 
 // ---- Albums ----
@@ -124,14 +113,6 @@ interface AlbumDao {
   @Query("SELECT id FROM albums") suspend fun getAllIds(): List<Long>
 
   @Query("DELETE FROM albums WHERE id IN (:ids)") suspend fun deleteByIds(ids: List<Long>)
-
-  @Query("SELECT id FROM albums WHERE source = :source")
-  suspend fun getIdsBySource(source: String): List<Long>
-
-  @Query("SELECT * FROM albums WHERE source = :source")
-  suspend fun getAllBySource(source: String): List<AlbumEntity>
-
-  @Query("DELETE FROM albums WHERE source = :source") suspend fun deleteBySource(source: String)
 }
 
 // ---- Artists ----
@@ -150,11 +131,6 @@ interface ArtistDao {
   @Query("SELECT id FROM artists") suspend fun getAllIds(): List<Long>
 
   @Query("DELETE FROM artists WHERE id IN (:ids)") suspend fun deleteByIds(ids: List<Long>)
-
-  @Query("SELECT id FROM artists WHERE source = :source")
-  suspend fun getIdsBySource(source: String): List<Long>
-
-  @Query("DELETE FROM artists WHERE source = :source") suspend fun deleteBySource(source: String)
 }
 
 // ---- Genres ----
@@ -167,11 +143,6 @@ interface GenreDao {
   @Query("SELECT id FROM genres") suspend fun getAllIds(): List<Long>
 
   @Query("DELETE FROM genres WHERE id IN (:ids)") suspend fun deleteByIds(ids: List<Long>)
-
-  @Query("SELECT id FROM genres WHERE source = :source")
-  suspend fun getIdsBySource(source: String): List<Long>
-
-  @Query("DELETE FROM genres WHERE source = :source") suspend fun deleteBySource(source: String)
 }
 
 // ---- Playlists ----

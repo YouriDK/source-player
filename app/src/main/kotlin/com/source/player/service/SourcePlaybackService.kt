@@ -10,15 +10,14 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.google.android.gms.cast.framework.CastContext
 import com.source.player.MainActivity
-import com.source.player.data.smb.SmbClient
-import com.source.player.data.smb.SmbConfig
+import com.source.player.data.freebox.FreeboxClient
+import com.source.player.data.freebox.FreeboxPaths
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
@@ -43,7 +42,7 @@ class SourcePlaybackService : MediaSessionService() {
 
     @Inject lateinit var localAudioHttpServer: LocalAudioHttpServer
     @Inject lateinit var sonosManager: SonosManager
-    @Inject lateinit var smbClient: SmbClient
+    @Inject lateinit var freeboxClient: FreeboxClient
 
     private val volumeScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -69,13 +68,9 @@ class SourcePlaybackService : MediaSessionService() {
                         .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                         .build()
 
-        // smb:// tracks (network share) go through SmbDataSource; everything else
+        // fbx:// tracks (Freebox disk) go through FreeboxDataSource; everything else
         // (file://, content://, http…) keeps the default data source.
-        val dataSourceFactory =
-                SchemeDispatchingDataSource.Factory(
-                        smbFactory = SmbDataSource.Factory(smbClient),
-                        defaultFactory = DefaultDataSource.Factory(this),
-                )
+        val dataSourceFactory = SchemeDispatchingDataSource.Factory(this, freeboxClient)
 
         localPlayer =
                 ExoPlayer.Builder(this)
@@ -89,6 +84,7 @@ class SourcePlaybackService : MediaSessionService() {
                         // throttling with the screen off causes intermittent stutter.
                         .setWakeMode(C.WAKE_MODE_LOCAL)
                         .build()
+                        .also { it.addListener(FreeboxStreamTags(it)) }
 
         // Initialize Cast — may throw if Play Services unavailable; fall back gracefully
         try {
@@ -180,8 +176,8 @@ class SourcePlaybackService : MediaSessionService() {
                                                     val path = uri.removePrefix("file://")
                                                     localAudioHttpServer.getUrl(path)
                                                             ?: return@map item
-                                                } else if (SmbConfig.isSmbUrl(uri)) {
-                                                    // Network share: proxied over HTTP by the phone.
+                                                } else if (FreeboxPaths.isFreeboxUrl(uri)) {
+                                                    // Freebox disk: proxied over HTTP by the phone.
                                                     localAudioHttpServer.getUrl(uri)
                                                             ?: return@map item
                                                 } else uri

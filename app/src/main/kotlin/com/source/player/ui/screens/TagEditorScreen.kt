@@ -96,7 +96,6 @@ fun TagEditorScreen(
                     actions = {
                       Button(
                               onClick = { vm.save() },
-                              enabled = song?.source != com.source.player.data.db.entity.SOURCE_SMB,
                               shape = RoundedCornerShape(50),
                               contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
                               modifier = Modifier.padding(end = 8.dp),
@@ -117,14 +116,6 @@ fun TagEditorScreen(
                             .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-
-      if (song?.source == com.source.player.data.db.entity.SOURCE_SMB) {
-        Text(
-                "Network tracks can't be edited from the app",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error,
-        )
-      }
 
       // ── Title Row (with album art circle) ─────────────────────────────────
       Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
