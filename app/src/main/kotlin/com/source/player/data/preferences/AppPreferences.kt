@@ -3,10 +3,12 @@ package com.source.player.data.preferences
 import android.content.Context
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
+import com.source.player.data.smb.SmbConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
@@ -38,6 +40,14 @@ class AppPreferences @Inject constructor(@ApplicationContext private val ctx: Co
     val MEDIASTORE_VERSION = stringPreferencesKey("mediastore_version")
     val MEDIASTORE_GENERATION = longPreferencesKey("mediastore_generation")
     val LAST_SCAN_AT = longPreferencesKey("last_scan_at")
+    // SMB/CIFS network library (Freebox Server / NAS) — see SmbConfig
+    val SMB_HOST = stringPreferencesKey("smb_host")
+    val SMB_SHARE = stringPreferencesKey("smb_share")
+    val SMB_PATH = stringPreferencesKey("smb_path")
+    val SMB_USER = stringPreferencesKey("smb_user")
+    val SMB_PASSWORD = stringPreferencesKey("smb_password")
+    val SMB_NAME = stringPreferencesKey("smb_name")
+    val SMB_LAST_SCAN_AT = longPreferencesKey("smb_last_scan_at")
   }
 
   val isDarkMode: Flow<Boolean> = ctx.dataStore.data.map { it[Keys.DARK_MODE] ?: true }
@@ -69,6 +79,54 @@ class AppPreferences @Inject constructor(@ApplicationContext private val ctx: Co
   val fontFamily: Flow<String> =
           ctx.dataStore.data.map { it[Keys.FONT_FAMILY] ?: "PlusJakartaSans" }
   val sonosActiveId: Flow<String?> = ctx.dataStore.data.map { it[Keys.SONOS_ACTIVE_ID] }
+
+  /**
+   * Persisted SMB share, or null when none is configured (host absent/blank).
+   * The password is stored in plain DataStore, like the Last.fm token: it is a
+   * LAN NAS credential that never leaves the device, acceptable for this
+   * privacy-local app.
+   */
+  val smbConfig: Flow<SmbConfig?> =
+          ctx.dataStore.data
+                  .map { prefs ->
+                    val host = prefs[Keys.SMB_HOST]?.takeIf { it.isNotBlank() } ?: return@map null
+                    SmbConfig(
+                            host = host,
+                            share = prefs[Keys.SMB_SHARE] ?: "",
+                            path = prefs[Keys.SMB_PATH] ?: "",
+                            username = prefs[Keys.SMB_USER] ?: "",
+                            password = prefs[Keys.SMB_PASSWORD] ?: "",
+                            displayName = prefs[Keys.SMB_NAME] ?: "Freebox",
+                    )
+                  }
+                  .distinctUntilChanged()
+
+  /** Epoch ms of the last completed SMB library scan, 0 when never scanned. */
+  val smbLastScanAt: Flow<Long> = ctx.dataStore.data.map { it[Keys.SMB_LAST_SCAN_AT] ?: 0L }
+
+  suspend fun setSmbConfig(config: SmbConfig) =
+          ctx.dataStore.edit {
+            it[Keys.SMB_HOST] = config.host.trim()
+            it[Keys.SMB_SHARE] = config.share.trim()
+            it[Keys.SMB_PATH] = config.path
+            it[Keys.SMB_USER] = config.username
+            it[Keys.SMB_PASSWORD] = config.password
+            it[Keys.SMB_NAME] = config.displayName
+          }
+
+  /** Forget the SMB share entirely, including its last-scan stamp. */
+  suspend fun clearSmbConfig() =
+          ctx.dataStore.edit {
+            it.remove(Keys.SMB_HOST)
+            it.remove(Keys.SMB_SHARE)
+            it.remove(Keys.SMB_PATH)
+            it.remove(Keys.SMB_USER)
+            it.remove(Keys.SMB_PASSWORD)
+            it.remove(Keys.SMB_NAME)
+            it.remove(Keys.SMB_LAST_SCAN_AT)
+          }
+
+  suspend fun setSmbLastScanAt(ms: Long) = ctx.dataStore.edit { it[Keys.SMB_LAST_SCAN_AT] = ms }
 
   /**
    * Stamp of the MediaStore state at the end of the last successful scan:

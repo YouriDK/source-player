@@ -414,7 +414,13 @@ fun PlayerScreen(
                             overflow = TextOverflow.Ellipsis,
                             textAlign = TextAlign.Center,
                             modifier =
-                                    Modifier.clickable(enabled = songId != null) {
+                                    Modifier.clickable(
+                                            enabled =
+                                                    songId != null &&
+                                                            !com.source.player.data.smb.SmbConfig.isSmbUrl(
+                                                                    song?.localConfiguration?.uri?.toString()
+                                                            )
+                                    ) {
                                         songId?.let {
                                             navController.navigate(Routes.tagEditor(it))
                                         }

@@ -16,6 +16,12 @@ val localProps = Properties().apply {
     if (f.exists()) load(f.inputStream())
 }
 
+// Release signing stays optional at configuration time so a clone without
+// local.properties can still sync and build debug. Hoisted to script scope so the
+// signingConfigs block below and the execution-time guard further down test the
+// exact same condition and cannot drift apart.
+val releaseStoreFilePath: String? = localProps["signing.store.file"] as String?
+
 // ---- Version ----------------------------------------------------------------
 // MAJOR.MINOR.PATCH lives in gradle.properties and nothing else declares it.
 // versionCode is derived so it always moves forward with the name; Play rejects
@@ -77,10 +83,9 @@ android {
     signingConfigs {
         // Release signing — credentials live in local.properties (git-ignored), never in source.
         // Only configured when a keystore path is present, so debug builds work without it.
-        val storeFilePath = localProps["signing.store.file"] as String?
-        if (storeFilePath != null) {
+        if (releaseStoreFilePath != null) {
             create("release") {
-                storeFile = rootProject.file(storeFilePath)
+                storeFile = rootProject.file(releaseStoreFilePath)
                 storePassword = localProps["signing.store.password"] as String?
                 keyAlias = localProps["signing.key.alias"] as String?
                 keyPassword = localProps["signing.key.password"] as String?
@@ -96,7 +101,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // Use the release signing config if it was configured above.
+            // Nullable on purpose: see the release-signing guard below the android
+            // block, which turns a missing config into an execution-time failure
+            // instead of a configuration-time one.
             signingConfig = signingConfigs.findByName("release")
         }
         debug {
@@ -118,6 +125,40 @@ android {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
 }
+
+// A null release signingConfig would otherwise package an unsigned artifact and
+// report success; Play only rejects it at upload. Guard it, but as a task action:
+//
+//  - not error() in the buildTypes block — that runs at configuration time and
+//    would break `tasks`, IDE sync and debug builds on a machine with no keystore,
+//    which is exactly the setup the nullability exists to support;
+//  - not gradle.taskGraph.whenReady — the configuration cache is on
+//    (gradle.properties), and a cache hit skips configuration entirely, so the
+//    callback would never fire and the check would silently disappear.
+//
+// A doFirst is serialized with the task, so it runs on cache hits and misses
+// alike. `configured` is read at configuration time into a plain Boolean local:
+// the action captures that, never the script object or Project, which is what
+// keeps it configuration-cache serializable.
+//
+// The packaging tasks are guarded alongside the lifecycle ones: bundleRelease and
+// assembleRelease are the last nodes in the graph, so on their own they would only
+// fail once an unsigned artifact already sat in build/outputs. package*Release run
+// immediately before that write. Scoping to these four rather than preReleaseBuild
+// keeps compileReleaseKotlin, lintRelease and testReleaseUnitTest working on a
+// machine with no keystore.
+val releaseSigningGuarded = setOf(
+    "packageRelease", "packageReleaseBundle", "assembleRelease", "bundleRelease",
+)
+tasks.matching { it.name in releaseSigningGuarded }
+    .configureEach {
+        val configured = releaseStoreFilePath != null
+        doFirst {
+            check(configured) {
+                "signingConfig 'release' introuvable — vérifie les clés signing.* dans local.properties"
+            }
+        }
+    }
 
 kotlin {
     compilerOptions {
@@ -199,6 +240,10 @@ dependencies {
 
     // Audio tag writing (tag editor)
     implementation(libs.jaudiotagger)
+
+    // SMB/CIFS network library (Freebox Server / NAS)
+    implementation(libs.jcifs.ng)
+    implementation(libs.slf4j.nop) // silences "no SLF4J providers" (jcifs-ng, ktor)
 
     // DataStore
     implementation(libs.datastore.preferences)

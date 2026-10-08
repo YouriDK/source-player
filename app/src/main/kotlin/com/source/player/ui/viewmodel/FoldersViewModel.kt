@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.source.player.data.db.dao.PlaylistDao
 import com.source.player.data.db.dao.SongDao
 import com.source.player.data.db.entity.PlaylistEntity
+import com.source.player.data.db.entity.SOURCE_SMB
 import com.source.player.data.db.entity.SongEntity
 import com.source.player.service.PlaybackController
 import com.source.player.ui.screens.FolderItem
@@ -44,56 +45,25 @@ constructor(
             combine(allSongs, _currentPath) { songs, current ->
                         if (songs.isEmpty()) return@combine emptyList()
 
-                        val root = current ?: computeRoot(songs)
-                        val prefix = "$root/"
+                        if (current != null) return@combine childFolders(songs, current)
 
-                        // Get immediate child segments
-                        val childSegments =
-                                mutableMapOf<
-                                        String,
-                                        MutableSet<String>>() // fullPath -> set of sub-paths
-                        val directSongCounts = mutableMapOf<String, Int>()
-                        val totalSongCounts = mutableMapOf<String, Int>()
-
-                        for (song in songs) {
-                            if (!song.folderPath.startsWith(prefix) && song.folderPath != root)
-                                    continue
-                            val relative = song.folderPath.removePrefix(prefix)
-                            if (relative.isEmpty())
-                                    continue // song is directly in the root, no subfolder
-
-                            val segment = relative.substringBefore("/")
-                            val childFullPath = "$root/$segment"
-
-                            // Track this child folder
-                            childSegments.getOrPut(childFullPath) { mutableSetOf() }
-                            totalSongCounts[childFullPath] =
-                                    (totalSongCounts[childFullPath] ?: 0) + 1
-
-                            if (song.folderPath == childFullPath) {
-                                directSongCounts[childFullPath] =
-                                        (directSongCounts[childFullPath] ?: 0) + 1
-                            }
-
-                            // Track unique sub-directories within this child
-                            val afterSegment = relative.removePrefix(segment).removePrefix("/")
-                            if (afterSegment.isNotEmpty()) {
-                                val subSegment = afterSegment.substringBefore("/")
-                                childSegments[childFullPath]?.add(subSegment)
-                            }
+                        val (smb, local) = songs.partition { it.source == SOURCE_SMB }
+                        if (local.isNotEmpty() && smb.isNotEmpty()) {
+                            // Both sources: the root level lists exactly two synthetic entries.
+                            val localRoot = computeRoot(local)
+                            val smbRoot = computeRoot(smb).trimEnd('/')
+                            listOf(
+                                    rootEntry(local, localRoot, "This device"),
+                                    rootEntry(
+                                            smb,
+                                            smbRoot,
+                                            smbRoot.split('/').lastOrNull { it.isNotEmpty() }
+                                                    ?: "Network",
+                                    ),
+                            )
+                        } else {
+                            childFolders(songs, computeRoot(songs))
                         }
-
-                        childSegments
-                                .map { (folderFullPath, subDirs) ->
-                                    FolderItem(
-                                            path = folderFullPath,
-                                            name = folderFullPath.substringAfterLast("/"),
-                                            songCount = directSongCounts[folderFullPath] ?: 0,
-                                            subFolderCount = subDirs.size,
-                                            totalSongCount = totalSongCounts[folderFullPath] ?: 0,
-                                    )
-                                }
-                                .sortedBy { it.name }
                     }
                     .flowOn(Dispatchers.Default)
                     .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -119,6 +89,63 @@ constructor(
                     }
                     .flowOn(Dispatchers.Default)
                     .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    /** Immediate child folders of [root] (real filesystem / share tree). */
+    private fun childFolders(songs: List<SongEntity>, root: String): List<FolderItem> {
+        val prefix = "$root/"
+        val childSegments = mutableMapOf<String, MutableSet<String>>()
+        val directSongCounts = mutableMapOf<String, Int>()
+        val totalSongCounts = mutableMapOf<String, Int>()
+
+        for (song in songs) {
+            if (!song.folderPath.startsWith(prefix) && song.folderPath != root) continue
+            val relative = song.folderPath.removePrefix(prefix)
+            if (relative.isEmpty()) continue // song is directly in the root, no subfolder
+
+            val segment = relative.substringBefore("/")
+            val childFullPath = "$root/$segment"
+
+            childSegments.getOrPut(childFullPath) { mutableSetOf() }
+            totalSongCounts[childFullPath] = (totalSongCounts[childFullPath] ?: 0) + 1
+            if (song.folderPath == childFullPath) {
+                directSongCounts[childFullPath] = (directSongCounts[childFullPath] ?: 0) + 1
+            }
+            val afterSegment = relative.removePrefix(segment).removePrefix("/")
+            if (afterSegment.isNotEmpty()) {
+                childSegments[childFullPath]?.add(afterSegment.substringBefore("/"))
+            }
+        }
+
+        return childSegments
+                .map { (folderFullPath, subDirs) ->
+                    FolderItem(
+                            path = folderFullPath,
+                            name = folderFullPath.substringAfterLast("/"),
+                            songCount = directSongCounts[folderFullPath] ?: 0,
+                            subFolderCount = subDirs.size,
+                            totalSongCount = totalSongCounts[folderFullPath] ?: 0,
+                    )
+                }
+                .sortedBy { it.name }
+    }
+
+    /** Synthetic root-level entry for one source group ([group] all share the common [root]). */
+    private fun rootEntry(group: List<SongEntity>, root: String, name: String): FolderItem {
+        val prefix = "$root/"
+        val subDirs =
+                group.mapNotNull { song ->
+                    if (song.folderPath.startsWith(prefix))
+                            song.folderPath.removePrefix(prefix).substringBefore("/")
+                    else null
+                }.toSet()
+        return FolderItem(
+                path = root,
+                name = name,
+                songCount = group.count { it.folderPath == root },
+                subFolderCount = subDirs.size,
+                totalSongCount = group.size,
+        )
+    }
 
     private fun computeRoot(songs: List<SongEntity>): String {
         if (songs.isEmpty()) return ""

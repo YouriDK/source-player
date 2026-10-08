@@ -458,6 +458,8 @@ constructor(
                         PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED ->
                                 "Unsupported format"
                         PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED -> "Network error"
+                        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ->
+                                "Network timeout"
                         else -> "Playback error"
                       }
               _playbackError.value = "Can't play \"$songTitle\": $reason"
@@ -628,6 +630,7 @@ constructor(
 
   private suspend fun sendMediaItemToSonos(device: SonosDevice, item: MediaItem) {
     val uri = item.localConfiguration?.uri?.toString() ?: return
+    // smb:// URLs pass through unchanged; LocalAudioHttpServer.getUrl() proxies them.
     val path = if (uri.startsWith("file://")) uri.removePrefix("file://") else uri
     val title = item.mediaMetadata.title?.toString() ?: "Unknown Track"
     lastSonosTrackId = item.mediaId
