@@ -29,13 +29,6 @@
 -dontwarn javax.swing.**
 -keep class org.jaudiotagger.** { *; }
 
-# jcifs-ng — instantiates protocol/config classes reflectively (jcifs.Config,
-# jcifs.context), so keep it whole. Optional BouncyCastle/SLF4J paths unused.
--keep class jcifs.** { *; }
--dontwarn jcifs.**
--dontwarn org.bouncycastle.**
--dontwarn org.slf4j.**
-
 # Readable release crash traces: keep line numbers, hide original file names
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile

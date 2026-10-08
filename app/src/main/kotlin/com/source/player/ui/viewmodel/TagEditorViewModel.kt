@@ -100,7 +100,6 @@ constructor(
         fun save() =
                 viewModelScope.launch {
                         val original = _song.value ?: return@launch
-                        if (original.source == com.source.player.data.db.entity.SOURCE_SMB) return@launch
 
                         val updatedTitle = title.value.trim().take(500).ifEmpty { original.title }
                         val updatedArtist = artist.value.trim().take(300).ifEmpty { original.artist }

@@ -45,6 +45,7 @@ object Routes {
   const val LIBRARY = "library"
   const val SEARCH = "search"
   const val FOLDERS = "folders"
+  const val FREEBOX = "freebox"
   const val SETTINGS = "settings"
   const val PLAYER = "player"
   const val QUEUE = "queue"
@@ -115,6 +116,7 @@ fun SourceNavHost() {
         composable(Routes.LIBRARY) { LibraryScreen(navController) }
         composable(Routes.SEARCH) { SearchScreen(navController) }
         composable(Routes.FOLDERS) { FoldersScreen(navController) }
+        composable(Routes.FREEBOX) { FreeboxScreen(navController) }
         composable(Routes.SETTINGS) { SettingsScreen(navController) }
         // The player is the one route that isn't a sibling of the others: it
         // rises out of the mini player and collapses back into it, so it gets
@@ -184,7 +186,10 @@ private fun SourceBottomNav(navController: NavController, currentRoute: String?)
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             bottomNavItems.forEach { item ->
-                val selected = currentRoute == item.route
+                // The Freebox browser is reached from Folders, so it keeps that tab lit.
+                val selected =
+                        currentRoute == item.route ||
+                                (item.route == Routes.FOLDERS && currentRoute == Routes.FREEBOX)
                 // Selection eases in: the tint fades and the icon springs up a touch,
                 // so tab switches feel connected instead of instantaneous. Both values
                 // are animated State read inside graphicsLayer / as a colour, which

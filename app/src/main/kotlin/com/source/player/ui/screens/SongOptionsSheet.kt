@@ -102,12 +102,9 @@ fun SongOptionsSheet(
                         icon = HugeIcons.PlaylistAdd,
                         label = "Add to Playlist"
                 ) { showPlaylistPicker = true }
-                // Network files can't be rewritten through MediaStore
-                if (song.source != com.source.player.data.db.entity.SOURCE_SMB) {
-                    OptionRow(icon = HugeIcons.Edit, label = "Edit Tags") {
-                        navController.navigate(Routes.tagEditor(song.id))
-                        onDismiss()
-                    }
+                OptionRow(icon = HugeIcons.Edit, label = "Edit Tags") {
+                    navController.navigate(Routes.tagEditor(song.id))
+                    onDismiss()
                 }
                 OptionRow(icon = HugeIcons.Album, label = "Go to Album") {
                     navController.navigate(Routes.albumDetail(song.albumId))

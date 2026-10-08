@@ -3,7 +3,8 @@ package com.source.player.data.preferences
 import android.content.Context
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
-import com.source.player.data.smb.SmbConfig
+import com.source.player.data.freebox.api.ApiUrls
+import com.source.player.data.freebox.api.ApiVersionDto
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -40,14 +41,15 @@ class AppPreferences @Inject constructor(@ApplicationContext private val ctx: Co
     val MEDIASTORE_VERSION = stringPreferencesKey("mediastore_version")
     val MEDIASTORE_GENERATION = longPreferencesKey("mediastore_generation")
     val LAST_SCAN_AT = longPreferencesKey("last_scan_at")
-    // SMB/CIFS network library (Freebox Server / NAS) — see SmbConfig
-    val SMB_HOST = stringPreferencesKey("smb_host")
-    val SMB_SHARE = stringPreferencesKey("smb_share")
-    val SMB_PATH = stringPreferencesKey("smb_path")
-    val SMB_USER = stringPreferencesKey("smb_user")
-    val SMB_PASSWORD = stringPreferencesKey("smb_password")
-    val SMB_NAME = stringPreferencesKey("smb_name")
-    val SMB_LAST_SCAN_AT = longPreferencesKey("smb_last_scan_at")
+    // Freebox OS API browser — see FreeboxSettings / data.freebox
+    val FBX_API_DOMAIN = stringPreferencesKey("fbx_api_domain")
+    val FBX_HTTPS_PORT = intPreferencesKey("fbx_https_port")
+    val FBX_API_BASE_URL = stringPreferencesKey("fbx_api_base_url")
+    val FBX_API_VERSION = stringPreferencesKey("fbx_api_version")
+    val FBX_MANUAL_HOST = stringPreferencesKey("fbx_manual_host")
+    val FBX_BOX_NAME = stringPreferencesKey("fbx_box_name")
+    val FBX_START_FOLDER_B64 = stringPreferencesKey("fbx_start_folder_b64")
+    val FBX_START_FOLDER_DISPLAY = stringPreferencesKey("fbx_start_folder_display")
   }
 
   val isDarkMode: Flow<Boolean> = ctx.dataStore.data.map { it[Keys.DARK_MODE] ?: true }
@@ -81,52 +83,70 @@ class AppPreferences @Inject constructor(@ApplicationContext private val ctx: Co
   val sonosActiveId: Flow<String?> = ctx.dataStore.data.map { it[Keys.SONOS_ACTIVE_ID] }
 
   /**
-   * Persisted SMB share, or null when none is configured (host absent/blank).
-   * The password is stored in plain DataStore, like the Last.fm token: it is a
-   * LAN NAS credential that never leaves the device, acceptable for this
-   * privacy-local app.
+   * Non-secret Freebox connection metadata (refreshed by every LAN discovery) and
+   * the optional browser start folder. The app_token lives in AppTokenStore, never here.
    */
-  val smbConfig: Flow<SmbConfig?> =
+  val freeboxSettings: Flow<FreeboxSettings> =
           ctx.dataStore.data
                   .map { prefs ->
-                    val host = prefs[Keys.SMB_HOST]?.takeIf { it.isNotBlank() } ?: return@map null
-                    SmbConfig(
-                            host = host,
-                            share = prefs[Keys.SMB_SHARE] ?: "",
-                            path = prefs[Keys.SMB_PATH] ?: "",
-                            username = prefs[Keys.SMB_USER] ?: "",
-                            password = prefs[Keys.SMB_PASSWORD] ?: "",
-                            displayName = prefs[Keys.SMB_NAME] ?: "Freebox",
+                    FreeboxSettings(
+                            apiDomain = prefs[Keys.FBX_API_DOMAIN],
+                            httpsPort = prefs[Keys.FBX_HTTPS_PORT],
+                            apiBaseUrl = prefs[Keys.FBX_API_BASE_URL],
+                            apiVersion = prefs[Keys.FBX_API_VERSION],
+                            manualHost = prefs[Keys.FBX_MANUAL_HOST],
+                            boxName = prefs[Keys.FBX_BOX_NAME],
+                            startFolderB64 = prefs[Keys.FBX_START_FOLDER_B64],
+                            startFolderDisplay = prefs[Keys.FBX_START_FOLDER_DISPLAY],
                     )
                   }
                   .distinctUntilChanged()
 
-  /** Epoch ms of the last completed SMB library scan, 0 when never scanned. */
-  val smbLastScanAt: Flow<Long> = ctx.dataStore.data.map { it[Keys.SMB_LAST_SCAN_AT] ?: 0L }
-
-  suspend fun setSmbConfig(config: SmbConfig) =
-          ctx.dataStore.edit {
-            it[Keys.SMB_HOST] = config.host.trim()
-            it[Keys.SMB_SHARE] = config.share.trim()
-            it[Keys.SMB_PATH] = config.path
-            it[Keys.SMB_USER] = config.username
-            it[Keys.SMB_PASSWORD] = config.password
-            it[Keys.SMB_NAME] = config.displayName
+  suspend fun saveFreeboxDiscovery(dto: ApiVersionDto) =
+          ctx.dataStore.edit { prefs ->
+            dto.apiDomain?.let { prefs[Keys.FBX_API_DOMAIN] = it } ?: prefs.remove(Keys.FBX_API_DOMAIN)
+            dto.httpsPort?.let { prefs[Keys.FBX_HTTPS_PORT] = it } ?: prefs.remove(Keys.FBX_HTTPS_PORT)
+            prefs[Keys.FBX_API_BASE_URL] = dto.apiBaseUrl
+            prefs[Keys.FBX_API_VERSION] = dto.apiVersion
+            dto.deviceName?.let { prefs[Keys.FBX_BOX_NAME] = it }
           }
 
-  /** Forget the SMB share entirely, including its last-scan stamp. */
-  suspend fun clearSmbConfig() =
-          ctx.dataStore.edit {
-            it.remove(Keys.SMB_HOST)
-            it.remove(Keys.SMB_SHARE)
-            it.remove(Keys.SMB_PATH)
-            it.remove(Keys.SMB_USER)
-            it.remove(Keys.SMB_PASSWORD)
-            it.remove(Keys.SMB_NAME)
-            it.remove(Keys.SMB_LAST_SCAN_AT)
+  /** Null, blank or the default LAN host clears the override. */
+  suspend fun saveFreeboxManualHost(host: String?) =
+          ctx.dataStore.edit { prefs ->
+            val trimmed = host?.trim()
+            if (trimmed.isNullOrEmpty() || trimmed == ApiUrls.LAN_HOST) {
+              prefs.remove(Keys.FBX_MANUAL_HOST)
+            } else {
+              prefs[Keys.FBX_MANUAL_HOST] = trimmed
+            }
           }
 
-  suspend fun setSmbLastScanAt(ms: Long) = ctx.dataStore.edit { it[Keys.SMB_LAST_SCAN_AT] = ms }
+  /** Optional start folder of the Freebox browser; null [b64] clears it (both fields). */
+  suspend fun saveFreeboxStartFolder(b64: String?, display: String?) =
+          ctx.dataStore.edit { prefs ->
+            if (b64 == null) {
+              prefs.remove(Keys.FBX_START_FOLDER_B64)
+              prefs.remove(Keys.FBX_START_FOLDER_DISPLAY)
+            } else {
+              prefs[Keys.FBX_START_FOLDER_B64] = b64
+              if (display == null) prefs.remove(Keys.FBX_START_FOLDER_DISPLAY)
+              else prefs[Keys.FBX_START_FOLDER_DISPLAY] = display
+            }
+          }
+
+  /** Forget every Freebox setting: endpoint metadata, box name, start folder. */
+  suspend fun clearFreeboxSettings() =
+          ctx.dataStore.edit {
+            it.remove(Keys.FBX_API_DOMAIN)
+            it.remove(Keys.FBX_HTTPS_PORT)
+            it.remove(Keys.FBX_API_BASE_URL)
+            it.remove(Keys.FBX_API_VERSION)
+            it.remove(Keys.FBX_MANUAL_HOST)
+            it.remove(Keys.FBX_BOX_NAME)
+            it.remove(Keys.FBX_START_FOLDER_B64)
+            it.remove(Keys.FBX_START_FOLDER_DISPLAY)
+          }
 
   /**
    * Stamp of the MediaStore state at the end of the last successful scan:
@@ -194,6 +214,24 @@ class AppPreferences @Inject constructor(@ApplicationContext private val ctx: Co
 
   companion object {
     const val DEFAULT_ACCENT_HUE = 60f // Amber
+  }
+}
+
+/** Snapshot of the persisted Freebox connection settings. */
+data class FreeboxSettings(
+        val apiDomain: String?,
+        val httpsPort: Int?,
+        val apiBaseUrl: String?,
+        val apiVersion: String?,
+        val manualHost: String?,
+        val boxName: String?,
+        val startFolderB64: String?,
+        val startFolderDisplay: String?,
+) {
+  /** Remote (*.fbxos.fr) API base, or null when the box exposes no remote access. */
+  fun remoteBase(): String? {
+    if (apiDomain == null || httpsPort == null || apiBaseUrl == null || apiVersion == null) return null
+    return ApiUrls.apiBase("https", apiDomain, httpsPort, apiBaseUrl, apiVersion)
   }
 }
 

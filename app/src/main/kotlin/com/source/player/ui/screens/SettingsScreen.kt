@@ -22,15 +22,18 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.source.player.BuildConfig
-import com.source.player.data.smb.SmbConfig
+import com.source.player.data.freebox.ConnectionMode
+import com.source.player.data.freebox.FreeboxFolder
 import com.source.player.service.AudioOutputDevice
 import com.source.player.service.DeviceCategory
 import com.source.player.ui.icons.HugeIcons
 import com.source.player.ui.theme.accentForHue
+import com.source.player.ui.navigation.Routes
 import com.source.player.ui.viewmodel.AudioOutputViewModel
+import com.source.player.ui.viewmodel.FreeboxPairingState
+import com.source.player.ui.viewmodel.FreeboxStatusUi
 import com.source.player.ui.viewmodel.LastFmLoginState
 import com.source.player.ui.viewmodel.SettingsViewModel
-import com.source.player.ui.viewmodel.SmbTestState
 
 /** Vinyl hue presets: Amber / Rust / Terracotta / Moss / Slate Blue / Plum / Rose. */
 private data class HuePreset(val label: String, val hue: Float)
@@ -63,11 +66,11 @@ fun SettingsScreen(
   val lastFmUser by vm.lastFmUser.collectAsState()
   val loginState by vm.loginState.collectAsState()
   val scanProgress by vm.scanProgress.collectAsState()
-  val smbConfig by vm.smbConfig.collectAsState()
-  val smbSongCount by vm.smbSongCount.collectAsState()
-  val smbScanProgress by vm.smbScanProgress.collectAsState()
-  val smbLastError by vm.smbLastError.collectAsState()
-  val smbTestState by vm.smbTestState.collectAsState()
+  val freeboxPaired by vm.freeboxPaired.collectAsState()
+  val freeboxBoxName by vm.freeboxBoxName.collectAsState()
+  val freeboxStartFolder by vm.freeboxStartFolder.collectAsState()
+  val freeboxPairing by vm.freeboxPairing.collectAsState()
+  val freeboxStatus by vm.freeboxStatus.collectAsState()
 
   val audioDevices by audioVm.availableDevices.collectAsState()
   val activeAudioDevice by audioVm.activeDevice.collectAsState()
@@ -76,7 +79,12 @@ fun SettingsScreen(
   var showLastFmModal by remember { mutableStateOf(false) }
   var showColorPicker by remember { mutableStateOf(false) }
   var showAudioOutput by remember { mutableStateOf(false) }
-  var showSmbDialog by remember { mutableStateOf(false) }
+  var showFreeboxDialog by remember { mutableStateOf(false) }
+
+  // One background check per visit so the Freebox row can say Connected / Unreachable.
+  LaunchedEffect(freeboxPaired) {
+    if (freeboxPaired && vm.freeboxStatus.value is FreeboxStatusUi.Unknown) vm.checkFreebox()
+  }
 
   Column(
           Modifier.fillMaxSize().systemBarsPadding().verticalScroll(rememberScrollState()),
@@ -132,29 +140,22 @@ fun SettingsScreen(
       }
     }
 
-    SettingsSection("Network Library") {
+    SettingsSection("Freebox") {
       SettingsItem(
-              "Freebox / NAS share",
-              HugeIcons.Wifi,
+              "Freebox",
+              HugeIcons.Cloud,
               subtitle =
-                      smbConfig?.let { c ->
-                        val location =
-                                listOf(c.share.trim('/'), c.path.trim('/'))
-                                        .filter { it.isNotEmpty() }
-                                        .joinToString("/")
-                        "${c.displayName} \u00B7 ${c.host}/$location \u00B7 $smbSongCount tracks"
-                      } ?: "Connect a network share",
-      ) { showSmbDialog = true }
-      if (smbConfig != null) {
-        SettingsItem(
-                "Scan Network Library",
-                HugeIcons.Refresh,
-                subtitle =
-                        smbScanProgress
-                                ?: smbLastError?.let { "Last scan failed: $it" }
-                                ?: "Tap to rescan the network share",
-        ) { if (smbScanProgress == null) vm.scanSmb() }
-      }
+                      if (!freeboxPaired) "Pair with your Freebox"
+                      else {
+                        val name = freeboxBoxName ?: "Freebox"
+                        when (val st = freeboxStatus) {
+                          is FreeboxStatusUi.Ok -> "$name \u00B7 Connected (${st.status.mode.label()})"
+                          FreeboxStatusUi.Checking -> "$name \u00B7 Checking\u2026"
+                          is FreeboxStatusUi.Failed -> "$name \u00B7 Unreachable"
+                          FreeboxStatusUi.Unknown -> name
+                        }
+                      },
+      ) { showFreeboxDialog = true }
     }
 
     SettingsSection("Library & UX") {
@@ -210,16 +211,25 @@ fun SettingsScreen(
     )
   }
 
-  if (showSmbDialog) {
-    SmbShareDialog(
-            current = smbConfig,
-            testState = smbTestState,
-            onTest = { vm.testSmb(it) },
-            onSave = { vm.saveSmb(it) },
-            onRemove = { vm.removeSmb() },
+  if (showFreeboxDialog) {
+    FreeboxDialog(
+            paired = freeboxPaired,
+            boxName = freeboxBoxName,
+            startFolder = freeboxStartFolder,
+            pairing = freeboxPairing,
+            status = freeboxStatus,
+            onPair = { vm.startPairing(it) },
+            onCancelPairing = { vm.cancelPairing() },
+            onCheck = { vm.checkFreebox() },
+            onOpenBrowser = {
+              showFreeboxDialog = false
+              vm.resetFreeboxPairingState()
+              navController.navigate(Routes.FREEBOX) { launchSingleTop = true }
+            },
+            onUnpair = { vm.unpairFreebox() },
             onDismiss = {
-              showSmbDialog = false
-              vm.resetSmbTestState()
+              showFreeboxDialog = false
+              vm.resetFreeboxPairingState()
             },
     )
   }
@@ -476,161 +486,174 @@ fun LastFmLoginModal(
   )
 }
 
-// ---- SMB / NAS share dialog ----
+// ---- Freebox Dialog ----
+
+private fun ConnectionMode.label(): String =
+        when (this) {
+          ConnectionMode.LAN -> "LAN"
+          ConnectionMode.REMOTE -> "Remote"
+        }
 
 @Composable
-fun SmbShareDialog(
-        current: SmbConfig?,
-        testState: SmbTestState,
-        onTest: (SmbConfig) -> Unit,
-        onSave: (SmbConfig) -> Unit,
-        onRemove: () -> Unit,
+fun FreeboxDialog(
+        paired: Boolean,
+        boxName: String?,
+        startFolder: FreeboxFolder?,
+        pairing: FreeboxPairingState,
+        status: FreeboxStatusUi,
+        onPair: (String?) -> Unit,
+        onCancelPairing: () -> Unit,
+        onCheck: () -> Unit,
+        onOpenBrowser: () -> Unit,
+        onUnpair: () -> Unit,
         onDismiss: () -> Unit,
 ) {
-  var name by remember { mutableStateOf(current?.displayName ?: "Freebox") }
-  var host by remember { mutableStateOf(current?.host ?: "") }
-  var share by remember { mutableStateOf(current?.share ?: "Freebox") }
-  var folder by remember { mutableStateOf(current?.path ?: "") }
-  var user by remember { mutableStateOf(current?.username ?: "") }
-  var pass by remember { mutableStateOf(current?.password ?: "") }
-  var confirmRemove by remember { mutableStateOf(false) }
+  val isPairing = pairing is FreeboxPairingState.Pairing
+  var advanced by remember { mutableStateOf(false) }
+  var host by remember { mutableStateOf("") }
+  var confirmUnpair by remember { mutableStateOf(false) }
 
-  fun buildConfig() =
-          SmbConfig(
-                  host = host.trim(),
-                  share = share.trim(),
-                  path = folder.trim(),
-                  username = user.trim(),
-                  password = pass,
-                  displayName = name.trim().ifEmpty { "Freebox" },
-          )
-
-  val testing = testState is SmbTestState.Testing
-  val canSave = host.isNotBlank() && share.isNotBlank()
+  // Check once each time the dialog opens on a paired box (and right after pairing).
+  LaunchedEffect(paired) { if (paired) onCheck() }
 
   AlertDialog(
-          onDismissRequest = onDismiss,
-          title = { Text("Network share") },
+          onDismissRequest = { if (!isPairing) onDismiss() },
+          title = { Text("Freebox") },
           text = {
-            Column(
-                    Modifier.verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-              OutlinedTextField(
-                      value = name,
-                      onValueChange = { name = it },
-                      label = { Text("Name") },
-                      singleLine = true,
-                      modifier = Modifier.fillMaxWidth(),
-              )
-              OutlinedTextField(
-                      value = host,
-                      onValueChange = { host = it },
-                      label = { Text("Host") },
-                      placeholder = { Text("192.168.1.254 or mafreebox.freebox.fr") },
-                      singleLine = true,
-                      modifier = Modifier.fillMaxWidth(),
-              )
-              OutlinedTextField(
-                      value = share,
-                      onValueChange = { share = it },
-                      label = { Text("Share") },
-                      singleLine = true,
-                      modifier = Modifier.fillMaxWidth(),
-              )
-              OutlinedTextField(
-                      value = folder,
-                      onValueChange = { folder = it },
-                      label = { Text("Folder (optional)") },
-                      placeholder = { Text("Musique") },
-                      singleLine = true,
-                      modifier = Modifier.fillMaxWidth(),
-              )
-              OutlinedTextField(
-                      value = user,
-                      onValueChange = { user = it },
-                      label = { Text("Username (optional)") },
-                      supportingText = { Text("Leave empty for guest access") },
-                      singleLine = true,
-                      modifier = Modifier.fillMaxWidth(),
-              )
-              OutlinedTextField(
-                      value = pass,
-                      onValueChange = { pass = it },
-                      label = { Text("Password") },
-                      singleLine = true,
-                      visualTransformation =
-                              androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                      modifier = Modifier.fillMaxWidth(),
-              )
-              when (testState) {
-                SmbTestState.Testing ->
-                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                          CircularProgressIndicator(Modifier.size(24.dp))
-                        }
-                is SmbTestState.Success ->
-                        Text(
-                                "Connected \u2014 ${testState.entryCount} items found",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary,
-                        )
-                is SmbTestState.Error ->
-                        Text(
-                                testState.message,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error,
-                        )
-                SmbTestState.Idle -> Unit
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+              when {
+                isPairing -> {
+                  Row(
+                          verticalAlignment = Alignment.CenterVertically,
+                          horizontalArrangement = Arrangement.spacedBy(12.dp),
+                  ) {
+                    CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                    Text(
+                            (pairing as FreeboxPairingState.Pairing).step,
+                            style = MaterialTheme.typography.bodyMedium,
+                    )
+                  }
+                }
+                !paired -> {
+                  Text(
+                          "Pairing must be done at home on your Wi-Fi. When you tap Pair, " +
+                                  "confirm on the Freebox's screen. Then allow file access for " +
+                                  "Source in Freebox OS \u2192 Settings \u2192 Access management " +
+                                  "\u2192 Applications.",
+                          style = MaterialTheme.typography.bodyMedium,
+                  )
+                  Row(
+                          modifier = Modifier.fillMaxWidth().clickable { advanced = !advanced },
+                          verticalAlignment = Alignment.CenterVertically,
+                          horizontalArrangement = Arrangement.SpaceBetween,
+                  ) {
+                    Text(
+                            "Advanced",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                    )
+                    Switch(checked = advanced, onCheckedChange = { advanced = it })
+                  }
+                  if (advanced) {
+                    OutlinedTextField(
+                            value = host,
+                            onValueChange = { host = it },
+                            label = { Text("Host") },
+                            placeholder = { Text("mafreebox.freebox.fr") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                    )
+                  }
+                  (pairing as? FreeboxPairingState.Error)?.let {
+                    Text(
+                            it.message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                    )
+                  }
+                }
+                confirmUnpair -> {
+                  Text(
+                          "Unpair this Freebox? Source will lose access to its disks until " +
+                                  "you pair it again.",
+                          style = MaterialTheme.typography.bodyMedium,
+                  )
+                }
+                else -> {
+                  val name = boxName ?: "Freebox"
+                  val statusLine =
+                          when (status) {
+                            is FreeboxStatusUi.Ok ->
+                                    buildString {
+                                      append(status.status.boxName ?: name)
+                                      append(" \u00B7 Connected (${status.status.mode.label()})")
+                                      status.status.latencyMs?.let { append(" \u00B7 $it ms") }
+                                    }
+                            FreeboxStatusUi.Checking -> "$name \u00B7 Checking\u2026"
+                            is FreeboxStatusUi.Failed -> "$name \u00B7 ${status.message}"
+                            FreeboxStatusUi.Unknown -> name
+                          }
+                  Row(
+                          verticalAlignment = Alignment.CenterVertically,
+                          horizontalArrangement = Arrangement.spacedBy(8.dp),
+                  ) {
+                    if (status is FreeboxStatusUi.Checking) {
+                      CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                    }
+                    Text(
+                            statusLine,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color =
+                                    if (status is FreeboxStatusUi.Failed)
+                                            MaterialTheme.colorScheme.error
+                                    else MaterialTheme.colorScheme.primary,
+                    )
+                  }
+                  Text(
+                          "Start folder: ${startFolder?.displayPath?.takeIf { it.isNotEmpty() } ?: "Disks root"}",
+                          style = MaterialTheme.typography.bodySmall,
+                          color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  )
+                  Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                            onClick = onCheck,
+                            enabled = status !is FreeboxStatusUi.Checking,
+                    ) { Text("Check connection") }
+                    OutlinedButton(onClick = onOpenBrowser) { Text("Open browser") }
+                  }
+                }
               }
             }
           },
           confirmButton = {
-            Row {
-              TextButton(onClick = { onTest(buildConfig()) }, enabled = canSave && !testing) {
-                Text("Test")
-              }
-              TextButton(
-                      onClick = {
-                        onSave(buildConfig())
-                        onDismiss()
-                      },
-                      enabled = canSave,
-              ) {
-                Text("Save")
-              }
+            when {
+              isPairing -> TextButton(onClick = onCancelPairing) { Text("Cancel") }
+              !paired ->
+                      TextButton(onClick = { onPair(host.takeIf { advanced && it.isNotBlank() }) }) {
+                        Text("Pair")
+                      }
+              confirmUnpair ->
+                      TextButton(
+                              onClick = {
+                                confirmUnpair = false
+                                onUnpair()
+                              }
+                      ) { Text("Unpair", color = MaterialTheme.colorScheme.error) }
+              else -> TextButton(onClick = onDismiss) { Text("Close") }
             }
           },
           dismissButton = {
-            Row {
-              if (current != null) {
-                TextButton(onClick = { confirmRemove = true }) {
-                  Text("Remove", color = MaterialTheme.colorScheme.error)
-                }
-              }
-              TextButton(onClick = onDismiss) { Text("Cancel") }
+            when {
+              isPairing -> Unit
+              !paired -> TextButton(onClick = onDismiss) { Text("Cancel") }
+              confirmUnpair -> TextButton(onClick = { confirmUnpair = false }) { Text("Cancel") }
+              else ->
+                      TextButton(onClick = { confirmUnpair = true }) {
+                        Text("Unpair", color = MaterialTheme.colorScheme.error)
+                      }
             }
           },
   )
-
-  if (confirmRemove) {
-    AlertDialog(
-            onDismissRequest = { confirmRemove = false },
-            title = { Text("Remove network share?") },
-            text = { Text("Network tracks will be removed from your library.") },
-            confirmButton = {
-              TextButton(
-                      onClick = {
-                        confirmRemove = false
-                        onRemove()
-                        onDismiss()
-                      }
-              ) {
-                Text("Remove", color = MaterialTheme.colorScheme.error)
-              }
-            },
-            dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Cancel") } },
-    )
-  }
 }
 
 @Composable

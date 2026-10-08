@@ -503,6 +503,14 @@ object HugeIcons {
             )
         }
 
+    /** Cloud outline, drawn on the Hugeicons 24px grid (stroke-rounded style). */
+    val Cloud: ImageVector
+        get() = cached("Cloud") {
+            listOf(
+                stroked("M7 19C4.23858 19 2 16.7614 2 14C2 11.4087 3.97088 9.27762 6.49546 9.02498C7.20843 6.13385 9.81694 4 12.9248 4C16.2794 4 19.0533 6.4865 19.4405 9.70251C21.0396 10.3711 22 11.8888 22 13.75C22 16.6495 19.6495 19 16.75 19H7Z", cap = StrokeCap.Round, join = StrokeJoin.Round),
+            )
+        }
+
     /** Hugeicons `tv-01` */
     val Tv: ImageVector
         get() = cached("Tv") {

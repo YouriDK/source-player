@@ -146,15 +146,17 @@ fun MiniPlayerBar(
                 // Cover and text cross-dissolve on a track change so the bar reads as
                 // one continuous surface rather than flickering to new content.
                 AnimatedContent(
-                        targetState = song?.mediaMetadata?.artworkUri,
+                        // Freebox streams carry their embedded cover as artworkData (no URI).
+                        targetState =
+                                song?.mediaMetadata?.let { it.artworkUri ?: it.artworkData },
                         transitionSpec = {
                             fadeIn(tween(220)).togetherWith(fadeOut(tween(160)))
                         },
                         label = "miniArtwork",
                         modifier = Modifier.size(44.dp),
-                ) { artworkUri ->
+                ) { artwork ->
                     AsyncImage(
-                            model = artworkUri,
+                            model = artwork,
                             contentDescription = null,
                             contentScale = ContentScale.Crop,
                             modifier =

@@ -2,19 +2,21 @@ package com.source.player.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.source.player.data.freebox.FreeboxClient
+import com.source.player.data.freebox.FreeboxAuthException
+import com.source.player.data.freebox.FreeboxError
+import com.source.player.data.freebox.FreeboxFolder
+import com.source.player.data.freebox.FreeboxStatus
+import com.source.player.data.freebox.FreeboxUnreachableException
+import com.source.player.data.freebox.auth.FreeboxPairingManager.PairingEvent
 import com.source.player.data.lastfm.LastFmException
 import com.source.player.data.lastfm.LastFmRepository
 import com.source.player.data.preferences.AppPreferences
-import com.source.player.data.db.dao.SongDao
-import com.source.player.data.db.entity.SOURCE_SMB
 import com.source.player.data.scanner.MediaScanner
-import com.source.player.data.smb.SmbAuthenticationException
-import com.source.player.data.smb.SmbClient
-import com.source.player.data.smb.SmbConfig
-import com.source.player.data.smb.SmbScanner
-import java.io.FileNotFoundException
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -29,11 +31,18 @@ sealed interface LastFmLoginState {
         object Success : LastFmLoginState
 }
 
-sealed interface SmbTestState {
-        object Idle : SmbTestState
-        object Testing : SmbTestState
-        data class Success(val entryCount: Int) : SmbTestState
-        data class Error(val message: String) : SmbTestState
+sealed interface FreeboxPairingState {
+        object Idle : FreeboxPairingState
+        /** [step]: user-facing description of where pairing is at. */
+        data class Pairing(val step: String) : FreeboxPairingState
+        data class Error(val message: String) : FreeboxPairingState
+}
+
+sealed interface FreeboxStatusUi {
+        object Unknown : FreeboxStatusUi
+        object Checking : FreeboxStatusUi
+        data class Ok(val status: FreeboxStatus) : FreeboxStatusUi
+        data class Failed(val message: String) : FreeboxStatusUi
 }
 
 @HiltViewModel
@@ -43,9 +52,7 @@ constructor(
         private val prefs: AppPreferences,
         private val lastFmRepo: LastFmRepository,
         private val scanner: MediaScanner,
-        private val smbClient: SmbClient,
-        private val smbScanner: SmbScanner,
-        private val songDao: SongDao,
+        private val freebox: FreeboxClient,
 ) : ViewModel() {
 
         val isDarkMode = prefs.isDarkMode.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
@@ -75,22 +82,6 @@ constructor(
 
         private val _loginState = MutableStateFlow<LastFmLoginState>(LastFmLoginState.Idle)
         val loginState = _loginState.asStateFlow()
-
-        val smbConfig: StateFlow<SmbConfig?> =
-                prefs.smbConfig.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-        val smbSongCount: StateFlow<Int> =
-                songDao.countBySourceFlow(SOURCE_SMB)
-                        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
-        val smbScanProgress: StateFlow<String?> =
-                smbScanner.progressMessage.stateIn(
-                        viewModelScope,
-                        SharingStarted.WhileSubscribed(5_000),
-                        null,
-                )
-        val smbLastError: StateFlow<String?> = smbScanner.lastError
-
-        private val _smbTestState = MutableStateFlow<SmbTestState>(SmbTestState.Idle)
-        val smbTestState = _smbTestState.asStateFlow()
 
         fun setDarkMode(v: Boolean) = viewModelScope.launch { prefs.setDarkMode(v) }
         fun setAccentHue(v: Float) = viewModelScope.launch { prefs.setAccentHue(v) }
@@ -143,56 +134,118 @@ constructor(
 
         fun scanLibrary() = viewModelScope.launch { scanner.scan() }
 
-        fun testSmb(config: SmbConfig) {
-                if (config.host.isBlank() || config.share.isBlank()) {
-                        _smbTestState.value = SmbTestState.Error("Host and share name are required")
-                        return
-                }
-                viewModelScope.launch {
-                        _smbTestState.value = SmbTestState.Testing
-                        val result = smbClient.testConnection(config)
-                        _smbTestState.value =
-                                result.fold(
-                                        onSuccess = { SmbTestState.Success(it) },
-                                        onFailure = { e ->
-                                                SmbTestState.Error(
-                                                        when (e) {
-                                                                is SmbAuthenticationException ->
-                                                                        "Access denied \u2014 check username and password"
-                                                                is FileNotFoundException ->
-                                                                        "Share or folder not found"
-                                                                else ->
-                                                                        "Can't reach server: ${e.message ?: e.javaClass.simpleName}"
+        // ---- Freebox ----
+
+        val freeboxPaired: StateFlow<Boolean> =
+                freebox.isPaired.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+        val freeboxBoxName: StateFlow<String?> =
+                freebox.boxName.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        val freeboxStartFolder: StateFlow<FreeboxFolder?> =
+                freebox.startFolder.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+        private val _freeboxPairing = MutableStateFlow<FreeboxPairingState>(FreeboxPairingState.Idle)
+        val freeboxPairing: StateFlow<FreeboxPairingState> = _freeboxPairing.asStateFlow()
+
+        private val _freeboxStatus = MutableStateFlow<FreeboxStatusUi>(FreeboxStatusUi.Unknown)
+        val freeboxStatus: StateFlow<FreeboxStatusUi> = _freeboxStatus.asStateFlow()
+
+        private var pairingJob: Job? = null
+        private var checkJob: Job? = null
+
+        fun startPairing(host: String?) {
+                pairingJob?.cancel()
+                _freeboxPairing.value = FreeboxPairingState.Pairing("Looking for your Freebox\u2026")
+                pairingJob =
+                        viewModelScope.launch {
+                                try {
+                                        freebox.pair(host?.trim()?.takeIf { it.isNotEmpty() }).collect { event ->
+                                                when (event) {
+                                                        PairingEvent.Discovering ->
+                                                                _freeboxPairing.value =
+                                                                        FreeboxPairingState.Pairing(
+                                                                                "Looking for your Freebox\u2026"
+                                                                        )
+                                                        PairingEvent.AwaitingValidation ->
+                                                                _freeboxPairing.value =
+                                                                        FreeboxPairingState.Pairing(
+                                                                                "Waiting for validation on the Freebox\u2026"
+                                                                        )
+                                                        PairingEvent.Granted -> {
+                                                                _freeboxPairing.value = FreeboxPairingState.Idle
+                                                                checkFreebox()
                                                         }
+                                                        is PairingEvent.Failed ->
+                                                                _freeboxPairing.value =
+                                                                        FreeboxPairingState.Error(event.error.toMessage())
+                                                }
+                                        }
+                                } catch (e: CancellationException) {
+                                        throw e
+                                } catch (e: Exception) {
+                                        _freeboxPairing.value =
+                                                FreeboxPairingState.Error(
+                                                        "Can't reach the Freebox \u2014 are you on your home Wi-Fi?"
                                                 )
-                                        },
-                                )
-                }
+                                }
+                        }
         }
 
-        fun saveSmb(config: SmbConfig) {
-                if (config.host.isBlank() || config.share.isBlank()) {
-                        _smbTestState.value = SmbTestState.Error("Host and share name are required")
-                        return
-                }
+        fun cancelPairing() {
+                pairingJob?.cancel()
+                pairingJob = null
+                _freeboxPairing.value = FreeboxPairingState.Idle
+        }
+
+        fun checkFreebox() {
+                checkJob?.cancel()
+                _freeboxStatus.value = FreeboxStatusUi.Checking
+                checkJob =
+                        viewModelScope.launch {
+                                _freeboxStatus.value =
+                                        freebox.checkConnection()
+                                                .fold(
+                                                        onSuccess = { FreeboxStatusUi.Ok(it) },
+                                                        onFailure = { e ->
+                                                                FreeboxStatusUi.Failed(
+                                                                        when (e) {
+                                                                                is FreeboxAuthException ->
+                                                                                        "Access refused \u2014 pair again"
+                                                                                is FreeboxUnreachableException ->
+                                                                                        "Unreachable"
+                                                                                else -> e.message ?: "Unreachable"
+                                                                        }
+                                                                )
+                                                        },
+                                                )
+                        }
+        }
+
+        fun unpairFreebox() {
+                checkJob?.cancel()
                 viewModelScope.launch {
-                        prefs.setSmbConfig(config)
-                        smbScanner.scan()
+                        freebox.unpair()
+                        _freeboxStatus.value = FreeboxStatusUi.Unknown
                 }
         }
 
-        fun removeSmb() {
-                viewModelScope.launch {
-                        smbScanner.clear()
-                        prefs.clearSmbConfig()
+        fun resetFreeboxPairingState() {
+                if (_freeboxPairing.value !is FreeboxPairingState.Pairing) {
+                        _freeboxPairing.value = FreeboxPairingState.Idle
                 }
-        }
-
-        fun scanSmb() {
-                viewModelScope.launch { smbScanner.scan() }
-        }
-
-        fun resetSmbTestState() {
-                _smbTestState.value = SmbTestState.Idle
         }
 }
+
+/** English messages for pairing failures (mirrors Boxpix's ErrorMessages). */
+private fun FreeboxError.toMessage(): String =
+        when (this) {
+                is FreeboxError.Network, FreeboxError.BoxNotFound ->
+                        "Can't reach the Freebox \u2014 are you on your home Wi-Fi?"
+                FreeboxError.PairingDenied -> "Pairing refused on the Freebox"
+                FreeboxError.PairingTimeout ->
+                        "Pairing timed out \u2014 tap Pair and validate on the Freebox screen"
+                FreeboxError.NotPaired -> "Freebox error: not_paired"
+                is FreeboxError.Http -> "Freebox error: HTTP $status"
+                is FreeboxError.Api ->
+                        if (code == "denied_from_external_ip") "Pairing must be done from your home Wi-Fi"
+                        else "Freebox error: $code"
+        }
