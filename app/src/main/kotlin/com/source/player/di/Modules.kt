@@ -3,6 +3,7 @@ package com.source.player.di
 import android.content.Context
 import androidx.room.Room
 import com.source.player.data.db.AppDatabase
+import com.source.player.data.db.MIGRATION_2_3
 import com.source.player.data.db.dao.*
 import com.source.player.data.lastfm.LastFmApi
 import com.source.player.data.lastfm.LastFmRepository
@@ -30,7 +31,9 @@ object DatabaseModule {
   fun provideDatabase(@ApplicationContext ctx: Context): AppDatabase =
           // No destructive fallback: a schema bump without a registered Migration
           // must fail loudly in development, never silently wipe user playlists.
-          Room.databaseBuilder(ctx, AppDatabase::class.java, "source_db").build()
+          Room.databaseBuilder(ctx, AppDatabase::class.java, "source_db")
+                  .addMigrations(MIGRATION_2_3)
+                  .build()
 
   @Provides fun provideSongDao(db: AppDatabase) = db.songDao()
   @Provides fun provideAlbumDao(db: AppDatabase) = db.albumDao()

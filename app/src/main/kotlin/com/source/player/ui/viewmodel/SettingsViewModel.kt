@@ -5,7 +5,14 @@ import androidx.lifecycle.viewModelScope
 import com.source.player.data.lastfm.LastFmException
 import com.source.player.data.lastfm.LastFmRepository
 import com.source.player.data.preferences.AppPreferences
+import com.source.player.data.db.dao.SongDao
+import com.source.player.data.db.entity.SOURCE_SMB
 import com.source.player.data.scanner.MediaScanner
+import com.source.player.data.smb.SmbAuthenticationException
+import com.source.player.data.smb.SmbClient
+import com.source.player.data.smb.SmbConfig
+import com.source.player.data.smb.SmbScanner
+import java.io.FileNotFoundException
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,6 +29,13 @@ sealed interface LastFmLoginState {
         object Success : LastFmLoginState
 }
 
+sealed interface SmbTestState {
+        object Idle : SmbTestState
+        object Testing : SmbTestState
+        data class Success(val entryCount: Int) : SmbTestState
+        data class Error(val message: String) : SmbTestState
+}
+
 @HiltViewModel
 class SettingsViewModel
 @Inject
@@ -29,6 +43,9 @@ constructor(
         private val prefs: AppPreferences,
         private val lastFmRepo: LastFmRepository,
         private val scanner: MediaScanner,
+        private val smbClient: SmbClient,
+        private val smbScanner: SmbScanner,
+        private val songDao: SongDao,
 ) : ViewModel() {
 
         val isDarkMode = prefs.isDarkMode.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
@@ -58,6 +75,22 @@ constructor(
 
         private val _loginState = MutableStateFlow<LastFmLoginState>(LastFmLoginState.Idle)
         val loginState = _loginState.asStateFlow()
+
+        val smbConfig: StateFlow<SmbConfig?> =
+                prefs.smbConfig.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        val smbSongCount: StateFlow<Int> =
+                songDao.countBySourceFlow(SOURCE_SMB)
+                        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+        val smbScanProgress: StateFlow<String?> =
+                smbScanner.progressMessage.stateIn(
+                        viewModelScope,
+                        SharingStarted.WhileSubscribed(5_000),
+                        null,
+                )
+        val smbLastError: StateFlow<String?> = smbScanner.lastError
+
+        private val _smbTestState = MutableStateFlow<SmbTestState>(SmbTestState.Idle)
+        val smbTestState = _smbTestState.asStateFlow()
 
         fun setDarkMode(v: Boolean) = viewModelScope.launch { prefs.setDarkMode(v) }
         fun setAccentHue(v: Float) = viewModelScope.launch { prefs.setAccentHue(v) }
@@ -109,4 +142,57 @@ constructor(
         }
 
         fun scanLibrary() = viewModelScope.launch { scanner.scan() }
+
+        fun testSmb(config: SmbConfig) {
+                if (config.host.isBlank() || config.share.isBlank()) {
+                        _smbTestState.value = SmbTestState.Error("Host and share name are required")
+                        return
+                }
+                viewModelScope.launch {
+                        _smbTestState.value = SmbTestState.Testing
+                        val result = smbClient.testConnection(config)
+                        _smbTestState.value =
+                                result.fold(
+                                        onSuccess = { SmbTestState.Success(it) },
+                                        onFailure = { e ->
+                                                SmbTestState.Error(
+                                                        when (e) {
+                                                                is SmbAuthenticationException ->
+                                                                        "Access denied \u2014 check username and password"
+                                                                is FileNotFoundException ->
+                                                                        "Share or folder not found"
+                                                                else ->
+                                                                        "Can't reach server: ${e.message ?: e.javaClass.simpleName}"
+                                                        }
+                                                )
+                                        },
+                                )
+                }
+        }
+
+        fun saveSmb(config: SmbConfig) {
+                if (config.host.isBlank() || config.share.isBlank()) {
+                        _smbTestState.value = SmbTestState.Error("Host and share name are required")
+                        return
+                }
+                viewModelScope.launch {
+                        prefs.setSmbConfig(config)
+                        smbScanner.scan()
+                }
+        }
+
+        fun removeSmb() {
+                viewModelScope.launch {
+                        smbScanner.clear()
+                        prefs.clearSmbConfig()
+                }
+        }
+
+        fun scanSmb() {
+                viewModelScope.launch { smbScanner.scan() }
+        }
+
+        fun resetSmbTestState() {
+                _smbTestState.value = SmbTestState.Idle
+        }
 }

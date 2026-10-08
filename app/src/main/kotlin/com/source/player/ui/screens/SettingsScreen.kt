@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.source.player.BuildConfig
+import com.source.player.data.smb.SmbConfig
 import com.source.player.service.AudioOutputDevice
 import com.source.player.service.DeviceCategory
 import com.source.player.ui.icons.HugeIcons
@@ -29,6 +30,7 @@ import com.source.player.ui.theme.accentForHue
 import com.source.player.ui.viewmodel.AudioOutputViewModel
 import com.source.player.ui.viewmodel.LastFmLoginState
 import com.source.player.ui.viewmodel.SettingsViewModel
+import com.source.player.ui.viewmodel.SmbTestState
 
 /** Vinyl hue presets: Amber / Rust / Terracotta / Moss / Slate Blue / Plum / Rose. */
 private data class HuePreset(val label: String, val hue: Float)
@@ -61,6 +63,11 @@ fun SettingsScreen(
   val lastFmUser by vm.lastFmUser.collectAsState()
   val loginState by vm.loginState.collectAsState()
   val scanProgress by vm.scanProgress.collectAsState()
+  val smbConfig by vm.smbConfig.collectAsState()
+  val smbSongCount by vm.smbSongCount.collectAsState()
+  val smbScanProgress by vm.smbScanProgress.collectAsState()
+  val smbLastError by vm.smbLastError.collectAsState()
+  val smbTestState by vm.smbTestState.collectAsState()
 
   val audioDevices by audioVm.availableDevices.collectAsState()
   val activeAudioDevice by audioVm.activeDevice.collectAsState()
@@ -69,6 +76,7 @@ fun SettingsScreen(
   var showLastFmModal by remember { mutableStateOf(false) }
   var showColorPicker by remember { mutableStateOf(false) }
   var showAudioOutput by remember { mutableStateOf(false) }
+  var showSmbDialog by remember { mutableStateOf(false) }
 
   Column(
           Modifier.fillMaxSize().systemBarsPadding().verticalScroll(rememberScrollState()),
@@ -124,6 +132,31 @@ fun SettingsScreen(
       }
     }
 
+    SettingsSection("Network Library") {
+      SettingsItem(
+              "Freebox / NAS share",
+              HugeIcons.Wifi,
+              subtitle =
+                      smbConfig?.let { c ->
+                        val location =
+                                listOf(c.share.trim('/'), c.path.trim('/'))
+                                        .filter { it.isNotEmpty() }
+                                        .joinToString("/")
+                        "${c.displayName} \u00B7 ${c.host}/$location \u00B7 $smbSongCount tracks"
+                      } ?: "Connect a network share",
+      ) { showSmbDialog = true }
+      if (smbConfig != null) {
+        SettingsItem(
+                "Scan Network Library",
+                HugeIcons.Refresh,
+                subtitle =
+                        smbScanProgress
+                                ?: smbLastError?.let { "Last scan failed: $it" }
+                                ?: "Tap to rescan the network share",
+        ) { if (smbScanProgress == null) vm.scanSmb() }
+      }
+    }
+
     SettingsSection("Library & UX") {
       SettingsSwitch("Remember Last Tab", HugeIcons.Bookmark, rememberTab) {
         vm.setRememberLastTab(it)
@@ -174,6 +207,20 @@ fun SettingsScreen(
             onScanClicked = { audioVm.scanAll() },
             onDeviceSelected = { audioVm.selectDevice(it) },
             onDismiss = { showAudioOutput = false },
+    )
+  }
+
+  if (showSmbDialog) {
+    SmbShareDialog(
+            current = smbConfig,
+            testState = smbTestState,
+            onTest = { vm.testSmb(it) },
+            onSave = { vm.saveSmb(it) },
+            onRemove = { vm.removeSmb() },
+            onDismiss = {
+              showSmbDialog = false
+              vm.resetSmbTestState()
+            },
     )
   }
 
@@ -427,6 +474,163 @@ fun LastFmLoginModal(
             TextButton(onClick = { if (!isLoading) onDismiss() }) { Text("Cancel") }
           },
   )
+}
+
+// ---- SMB / NAS share dialog ----
+
+@Composable
+fun SmbShareDialog(
+        current: SmbConfig?,
+        testState: SmbTestState,
+        onTest: (SmbConfig) -> Unit,
+        onSave: (SmbConfig) -> Unit,
+        onRemove: () -> Unit,
+        onDismiss: () -> Unit,
+) {
+  var name by remember { mutableStateOf(current?.displayName ?: "Freebox") }
+  var host by remember { mutableStateOf(current?.host ?: "") }
+  var share by remember { mutableStateOf(current?.share ?: "Freebox") }
+  var folder by remember { mutableStateOf(current?.path ?: "") }
+  var user by remember { mutableStateOf(current?.username ?: "") }
+  var pass by remember { mutableStateOf(current?.password ?: "") }
+  var confirmRemove by remember { mutableStateOf(false) }
+
+  fun buildConfig() =
+          SmbConfig(
+                  host = host.trim(),
+                  share = share.trim(),
+                  path = folder.trim(),
+                  username = user.trim(),
+                  password = pass,
+                  displayName = name.trim().ifEmpty { "Freebox" },
+          )
+
+  val testing = testState is SmbTestState.Testing
+  val canSave = host.isNotBlank() && share.isNotBlank()
+
+  AlertDialog(
+          onDismissRequest = onDismiss,
+          title = { Text("Network share") },
+          text = {
+            Column(
+                    Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+              OutlinedTextField(
+                      value = name,
+                      onValueChange = { name = it },
+                      label = { Text("Name") },
+                      singleLine = true,
+                      modifier = Modifier.fillMaxWidth(),
+              )
+              OutlinedTextField(
+                      value = host,
+                      onValueChange = { host = it },
+                      label = { Text("Host") },
+                      placeholder = { Text("192.168.1.254 or mafreebox.freebox.fr") },
+                      singleLine = true,
+                      modifier = Modifier.fillMaxWidth(),
+              )
+              OutlinedTextField(
+                      value = share,
+                      onValueChange = { share = it },
+                      label = { Text("Share") },
+                      singleLine = true,
+                      modifier = Modifier.fillMaxWidth(),
+              )
+              OutlinedTextField(
+                      value = folder,
+                      onValueChange = { folder = it },
+                      label = { Text("Folder (optional)") },
+                      placeholder = { Text("Musique") },
+                      singleLine = true,
+                      modifier = Modifier.fillMaxWidth(),
+              )
+              OutlinedTextField(
+                      value = user,
+                      onValueChange = { user = it },
+                      label = { Text("Username (optional)") },
+                      supportingText = { Text("Leave empty for guest access") },
+                      singleLine = true,
+                      modifier = Modifier.fillMaxWidth(),
+              )
+              OutlinedTextField(
+                      value = pass,
+                      onValueChange = { pass = it },
+                      label = { Text("Password") },
+                      singleLine = true,
+                      visualTransformation =
+                              androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                      modifier = Modifier.fillMaxWidth(),
+              )
+              when (testState) {
+                SmbTestState.Testing ->
+                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                          CircularProgressIndicator(Modifier.size(24.dp))
+                        }
+                is SmbTestState.Success ->
+                        Text(
+                                "Connected \u2014 ${testState.entryCount} items found",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                        )
+                is SmbTestState.Error ->
+                        Text(
+                                testState.message,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                        )
+                SmbTestState.Idle -> Unit
+              }
+            }
+          },
+          confirmButton = {
+            Row {
+              TextButton(onClick = { onTest(buildConfig()) }, enabled = canSave && !testing) {
+                Text("Test")
+              }
+              TextButton(
+                      onClick = {
+                        onSave(buildConfig())
+                        onDismiss()
+                      },
+                      enabled = canSave,
+              ) {
+                Text("Save")
+              }
+            }
+          },
+          dismissButton = {
+            Row {
+              if (current != null) {
+                TextButton(onClick = { confirmRemove = true }) {
+                  Text("Remove", color = MaterialTheme.colorScheme.error)
+                }
+              }
+              TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+          },
+  )
+
+  if (confirmRemove) {
+    AlertDialog(
+            onDismissRequest = { confirmRemove = false },
+            title = { Text("Remove network share?") },
+            text = { Text("Network tracks will be removed from your library.") },
+            confirmButton = {
+              TextButton(
+                      onClick = {
+                        confirmRemove = false
+                        onRemove()
+                        onDismiss()
+                      }
+              ) {
+                Text("Remove", color = MaterialTheme.colorScheme.error)
+              }
+            },
+            dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Cancel") } },
+    )
+  }
 }
 
 @Composable

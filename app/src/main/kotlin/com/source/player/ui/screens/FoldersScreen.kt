@@ -32,7 +32,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
+import com.source.player.data.db.entity.SOURCE_SMB
 import com.source.player.data.db.entity.SongEntity
+import com.source.player.data.smb.SmbConfig
 import com.source.player.ui.components.Hairline
 import com.source.player.ui.components.MonoSize
 import com.source.player.ui.components.MonoText
@@ -387,13 +389,27 @@ private fun FolderRow(folder: FolderItem, onClick: () -> Unit) {
                         modifier = Modifier.size(32.dp),
                 )
                 Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                                folder.name,
-                                style = text.folderName17,
-                                color = colors.text,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                        )
+                        Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                                Text(
+                                        folder.name,
+                                        style = text.folderName17,
+                                        color = colors.text,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false),
+                                )
+                                if (SmbConfig.isSmbUrl(folder.path)) {
+                                        Icon(
+                                                HugeIcons.Wifi,
+                                                "Network",
+                                                tint = colors.textMute,
+                                                modifier = Modifier.size(16.dp),
+                                        )
+                                }
+                        }
                         val meta = buildString {
                                 if (folder.subFolderCount > 0)
                                         append("${folder.subFolderCount} folders")
@@ -437,13 +453,27 @@ private fun SongRowInFolder(song: SongEntity, onClick: () -> Unit) {
                         modifier = Modifier.size(18.dp),
                 )
                 Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                                song.title,
-                                style = text.trackTitle22,
-                                color = colors.text,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                        )
+                        Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                                Text(
+                                        song.title,
+                                        style = text.trackTitle22,
+                                        color = colors.text,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false),
+                                )
+                                if (song.source == SOURCE_SMB) {
+                                        Icon(
+                                                HugeIcons.Wifi,
+                                                "Network",
+                                                tint = colors.textMute,
+                                                modifier = Modifier.size(16.dp),
+                                        )
+                                }
+                        }
                         Text(
                                 song.artist,
                                 style = text.metaSmall115,

@@ -10,11 +10,15 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.google.android.gms.cast.framework.CastContext
 import com.source.player.MainActivity
+import com.source.player.data.smb.SmbClient
+import com.source.player.data.smb.SmbConfig
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
@@ -39,6 +43,7 @@ class SourcePlaybackService : MediaSessionService() {
 
     @Inject lateinit var localAudioHttpServer: LocalAudioHttpServer
     @Inject lateinit var sonosManager: SonosManager
+    @Inject lateinit var smbClient: SmbClient
 
     private val volumeScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -64,8 +69,20 @@ class SourcePlaybackService : MediaSessionService() {
                         .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                         .build()
 
+        // smb:// tracks (network share) go through SmbDataSource; everything else
+        // (file://, content://, http…) keeps the default data source.
+        val dataSourceFactory =
+                SchemeDispatchingDataSource.Factory(
+                        smbFactory = SmbDataSource.Factory(smbClient),
+                        defaultFactory = DefaultDataSource.Factory(this),
+                )
+
         localPlayer =
                 ExoPlayer.Builder(this)
+                        .setMediaSourceFactory(
+                                DefaultMediaSourceFactory(this)
+                                        .setDataSourceFactory(dataSourceFactory)
+                        )
                         .setAudioAttributes(audioAttributes, true)
                         .setHandleAudioBecomingNoisy(true)
                         // Hold a partial wake lock while playing — without it, doze CPU
@@ -162,6 +179,10 @@ class SourcePlaybackService : MediaSessionService() {
                                                 ) {
                                                     val path = uri.removePrefix("file://")
                                                     localAudioHttpServer.getUrl(path)
+                                                            ?: return@map item
+                                                } else if (SmbConfig.isSmbUrl(uri)) {
+                                                    // Network share: proxied over HTTP by the phone.
+                                                    localAudioHttpServer.getUrl(uri)
                                                             ?: return@map item
                                                 } else uri
                                         item.buildUpon().setUri(httpUrl).build()
