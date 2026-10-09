@@ -1,6 +1,5 @@
 package com.source.player.ui.navigation
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -9,9 +8,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -20,7 +17,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -49,7 +51,6 @@ object Routes {
   const val FREEBOX_PICKER = "freebox/pick"
   const val SETTINGS = "settings"
   const val PLAYER = "player"
-  const val QUEUE = "queue"
   const val ALBUM_DETAIL = "album/{albumId}"
   const val ARTIST_DETAIL = "artist/{artistId}"
   const val PLAYLIST_DETAIL = "playlist/{playlistId}"
@@ -69,44 +70,65 @@ data class BottomNavItem(
 )
 
 // Vinyl bottom nav — Search is merged into Library (see SEARCH_MERGE.md).
-// Folders is kept as a first-class destination, as requested.
+// Four tabs, so there is no true middle slot: Player sits second, the closest to the
+// centre, right next to Library where playback usually starts. The queue lives in a
+// sheet over the player, not in a tab.
 val bottomNavItems =
         listOf(
                 BottomNavItem(Routes.LIBRARY, "Library", HugeIcons.Library),
-                BottomNavItem(Routes.QUEUE, "Queue", HugeIcons.Playlist),
+                BottomNavItem(Routes.PLAYER, "Player", HugeIcons.MusicNote),
                 BottomNavItem(Routes.FOLDERS, "Folders", HugeIcons.Folder),
                 BottomNavItem(Routes.SETTINGS, "Settings", HugeIcons.Settings),
         )
 
-// Routes that should hide the bottom nav + mini player
-private val fullScreenRoutes = setOf(Routes.PLAYER)
+private val tabRoutes = bottomNavItems.map { it.route }.toSet()
 
+/**
+ * @param startRoute tab the app opens on — Player when a queue was restored, Library
+ * otherwise (decided before the first frame, see StartDestinationViewModel).
+ */
 @Composable
-fun SourceNavHost() {
+fun SourceNavHost(startRoute: String) {
   val navController = rememberNavController()
   val currentBackStack by navController.currentBackStackEntryAsState()
   val currentRoute = currentBackStack?.destination?.route
 
-  val showBottomBar = currentRoute !in fullScreenRoutes
+  // Last tab other than Player the user was in (detail screens count as their tab),
+  // and the one the player's close button / back returns to: null when the player
+  // was not opened from another tab (app started on it, or reached by Back).
+  var lastTab by rememberSaveable { mutableStateOf<String?>(null) }
+  var playerReturnTab by rememberSaveable { mutableStateOf<String?>(null) }
+  var pendingReturnTab by remember { mutableStateOf<String?>(null) }
+  var previousRoute by remember { mutableStateOf<String?>(null) }
+  LaunchedEffect(currentRoute) {
+    if (currentRoute in tabRoutes && currentRoute != Routes.PLAYER) lastTab = currentRoute
+    // Opened through the tab bar / mini player: return to where the user was.
+    // Popped back to from another tab: nowhere to return. Popped back to from a
+    // screen opened over the player (tag editor): keep the return tab.
+    if (currentRoute == Routes.PLAYER && (pendingReturnTab != null || previousRoute in tabRoutes)) {
+      playerReturnTab = pendingReturnTab
+    }
+    pendingReturnTab = null
+    previousRoute = currentRoute
+  }
+
+  fun openTab(route: String) {
+    if (route == Routes.PLAYER && currentRoute != Routes.PLAYER) pendingReturnTab = lastTab
+    navController.navigateToTab(route)
+  }
 
   Scaffold(
           bottomBar = {
-            AnimatedVisibility(
-                    visible = showBottomBar,
-                    enter = slideInVertically { it },
-                    exit = slideOutVertically { it },
-            ) {
-              SourceBottomNav(
-                      navController = navController,
-                      currentRoute = currentRoute,
-              )
-            }
+            SourceBottomNav(
+                    currentRoute = currentRoute,
+                    onSelect = ::openTab,
+            )
           },
   ) { padding ->
     Box(Modifier.padding(padding)) {
       NavHost(
               navController = navController,
-              startDestination = Routes.LIBRARY,
+              startDestination = startRoute,
               enterTransition = { fadeIn(tween(200)) + slideInHorizontally { it / 4 } },
               exitTransition = { fadeOut(tween(200)) },
               popEnterTransition = { fadeIn(tween(200)) },
@@ -127,21 +149,20 @@ fun SourceNavHost() {
                         ),
         ) { FreeboxScreen(navController) }
         composable(Routes.SETTINGS) { SettingsScreen(navController) }
-        // The player is the one route that isn't a sibling of the others: it
-        // rises out of the mini player and collapses back into it, so it gets
-        // vertical transitions instead of the graph-wide horizontal ones. A
-        // pull-down leaves the screen already part-way down, and this exit
-        // carries it the rest of the way as one continuous move.
-        composable(
-                Routes.PLAYER,
-                enterTransition = { slideInVertically(tween(280)) { it } + fadeIn(tween(180)) },
-                popExitTransition = {
-                    slideOutVertically(tween(260)) { it } + fadeOut(tween(220))
-                },
-        ) {
-            PlayerScreen(navController)
+        composable(Routes.PLAYER) {
+          val returnTab = playerReturnTab
+          PlayerScreen(
+                  navController = navController,
+                  onClose =
+                          returnTab?.let {
+                            {
+                              playerReturnTab = null
+                              navController.navigateToTab(it)
+                            }
+                          },
+                  onBrowseFolders = { openTab(Routes.FOLDERS) },
+          )
         }
-        composable(Routes.QUEUE) { QueueScreen(navController) }
         composable(
                 Routes.ALBUM_DETAIL,
                 arguments = listOf(navArgument("albumId") { type = NavType.LongType }),
@@ -160,23 +181,22 @@ fun SourceNavHost() {
         ) { TagEditorScreen(navController, it.arguments!!.getLong("songId")) }
       }
 
-      // MiniPlayer shown on all non-fullscreen routes
-      if (showBottomBar) {
-        Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.BottomCenter,
-        ) {
-          MiniPlayerBar(
-                  modifier =
-                          Modifier.padding(
-                                  bottom =
-                                          WindowInsets.navigationBars
-                                                  .asPaddingValues()
-                                                  .calculateBottomPadding()
-                          ),
-                  onTap = { navController.navigate(Routes.PLAYER) },
-          )
-        }
+      // Mini player over every screen but the player itself.
+      Box(
+              modifier = Modifier.fillMaxSize(),
+              contentAlignment = Alignment.BottomCenter,
+      ) {
+        MiniPlayerBar(
+                modifier =
+                        Modifier.padding(
+                                bottom =
+                                        WindowInsets.navigationBars
+                                                .asPaddingValues()
+                                                .calculateBottomPadding()
+                        ),
+                hidden = currentRoute == Routes.PLAYER,
+                onTap = { openTab(Routes.PLAYER) },
+        )
       }
     }
   }
@@ -195,7 +215,7 @@ fun NavController.navigateToTab(route: String) {
 }
 
 @Composable
-private fun SourceBottomNav(navController: NavController, currentRoute: String?) {
+private fun SourceBottomNav(currentRoute: String?, onSelect: (String) -> Unit) {
     val colors = MaterialTheme.sourceColors
     val text = MaterialTheme.sourceText
     Column(Modifier.background(colors.bg)) {
@@ -231,7 +251,7 @@ private fun SourceBottomNav(navController: NavController, currentRoute: String?)
                 Column(
                         modifier =
                                 Modifier.weight(1f)
-                                        .clickable { navController.navigateToTab(item.route) }
+                                        .clickable { onSelect(item.route) }
                                         .padding(vertical = 6.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                 ) {

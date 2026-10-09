@@ -61,6 +61,8 @@ private const val DismissFraction = 0.35f
 @Composable
 fun MiniPlayerBar(
         modifier: Modifier = Modifier,
+        /** True on the Player tab: the full player is on screen, the bar steps aside. */
+        hidden: Boolean = false,
         onTap: () -> Unit,
         vm: PlayerViewModel = hiltViewModel(),
 ) {
@@ -84,7 +86,7 @@ fun MiniPlayerBar(
     var barWidth by remember { mutableIntStateOf(0) }
 
     AnimatedVisibility(
-            visible = song != null,
+            visible = song != null && !hidden,
             enter = slideInVertically { it } + fadeIn(),
             exit = slideOutVertically { it } + fadeOut(),
             modifier = modifier.fillMaxWidth(),

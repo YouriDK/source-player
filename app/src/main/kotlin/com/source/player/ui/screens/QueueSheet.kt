@@ -6,8 +6,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -15,28 +19,44 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.navigation.NavController
 import com.source.player.ui.components.Hairline
 import com.source.player.ui.components.MonoSize
 import com.source.player.ui.components.MonoText
-import com.source.player.ui.components.SectionKicker
 import com.source.player.ui.theme.sourceColors
 import com.source.player.ui.theme.sourceText
 import com.source.player.ui.viewmodel.PlayerViewModel
 
 /**
- * Queue — LP back-cover metaphor. Focused secondary view, no mini-player, no
- * tab bar. Current track is accent-tinted.
+ * The queue, pulled up over the player: same tracklist as the former Queue tab, the
+ * current track accent-tinted. Material 3 modal sheet, opened full height — dragging it
+ * down or tapping the scrim / Back closes it.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun QueueScreen(
-        @Suppress("unused") navController: NavController,
+fun QueueSheet(
+        onDismiss: () -> Unit,
         vm: PlayerViewModel = hiltViewModel(),
 ) {
+    val colors = MaterialTheme.sourceColors
+    ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = colors.bg,
+            contentColor = colors.text,
+            scrimColor = Color.Black.copy(alpha = 0.5f),
+            dragHandle = { BottomSheetDefaults.DragHandle(color = colors.textMute) },
+    ) {
+        QueueList(vm)
+    }
+}
+
+@Composable
+private fun QueueList(vm: PlayerViewModel) {
     val queue by vm.queueItems.collectAsStateWithLifecycle()
     val currentIndex by vm.queueIndex.collectAsStateWithLifecycle()
 
@@ -63,26 +83,36 @@ fun QueueScreen(
     LaunchedEffect(currentIndex, keyedQueue.size) {
         if (keyedQueue.isNotEmpty()) {
             // runCatching: the scroll animation races queue swaps by design;
-            // a cancelled/invalid scroll must never take the screen down.
+            // a cancelled/invalid scroll must never take the sheet down.
             runCatching {
                 listState.animateScrollToItem(currentIndex.coerceIn(0, keyedQueue.lastIndex))
             }
         }
     }
 
-    Column(Modifier.fillMaxSize().systemBarsPadding().background(colors.bg)) {
-        // Header block: kicker + "What's / next."
-        Column(modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 18.dp)) {
-            SectionKicker(label = "B Side \u00B7 Tracklist")
-            Spacer(Modifier.height(6.dp))
-            Text(
-                    text = "What's\nnext.",
-                    style = text.queueHeadline56,
-                    color = colors.text,
+    Column(Modifier.fillMaxWidth()) {
+        // Header: "Queue · 4 / 12"
+        Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(text = "Queue", style = text.editorialHeadline32, color = colors.text)
+            MonoText(
+                    text =
+                            if (keyedQueue.isEmpty()) "\u00B7 Empty"
+                            else "\u00B7 ${(currentIndex + 1).coerceAtMost(keyedQueue.size)} / ${keyedQueue.size}",
+                    color = colors.textMute,
+                    size = MonoSize.S10,
+                    modifier = Modifier.padding(bottom = 6.dp),
             )
         }
 
-        LazyColumn(Modifier.fillMaxSize(), state = listState) {
+        LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
+                state = listState,
+                contentPadding = PaddingValues(bottom = 24.dp),
+        ) {
             itemsIndexed(keyedQueue, key = { _, entry -> entry.first }) { i, entry ->
                 val item = entry.second
                 val isCurrent = i == currentIndex
