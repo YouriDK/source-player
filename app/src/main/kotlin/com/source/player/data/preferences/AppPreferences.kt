@@ -55,6 +55,11 @@ class AppPreferences @Inject constructor(@ApplicationContext private val ctx: Co
     val FBX_LAST_SCAN_AT = longPreferencesKey("fbx_last_scan_at")
     // Library mode (Local / Stream) — see LibraryMode
     val LIBRARY_MODE = stringPreferencesKey("library_mode")
+    // Library tab layouts — see LibraryLayout
+    val LAYOUT_SONGS = stringPreferencesKey("library_layout_songs")
+    val LAYOUT_ALBUMS = stringPreferencesKey("library_layout_albums")
+    val LAYOUT_ARTISTS = stringPreferencesKey("library_layout_artists")
+    val GALLERY_COLUMNS = intPreferencesKey("gallery_columns")
   }
 
   val isDarkMode: Flow<Boolean> = ctx.dataStore.data.map { it[Keys.DARK_MODE] ?: true }
@@ -93,6 +98,27 @@ class AppPreferences @Inject constructor(@ApplicationContext private val ctx: Co
 
   suspend fun setLibraryMode(mode: LibraryMode) =
           ctx.dataStore.edit { it[Keys.LIBRARY_MODE] = mode.name }
+
+  /** Layout of the Songs / Albums / Artists tabs and the gallery column count (2 or 3). */
+  val libraryLayouts: Flow<LibraryLayoutSettings> =
+          ctx.dataStore.data
+                  .map { prefs ->
+                    val d = LibraryLayoutSettings()
+                    LibraryLayoutSettings(
+                            songs = LibraryLayout.fromKey(prefs[Keys.LAYOUT_SONGS], d.songs),
+                            albums = LibraryLayout.fromKey(prefs[Keys.LAYOUT_ALBUMS], d.albums),
+                            artists = LibraryLayout.fromKey(prefs[Keys.LAYOUT_ARTISTS], d.artists),
+                            galleryColumns =
+                                    (prefs[Keys.GALLERY_COLUMNS] ?: d.galleryColumns).coerceIn(2, 3),
+                    )
+                  }
+                  .distinctUntilChanged()
+
+  suspend fun setSongsLayout(v: LibraryLayout) = ctx.dataStore.edit { it[Keys.LAYOUT_SONGS] = v.name }
+  suspend fun setAlbumsLayout(v: LibraryLayout) = ctx.dataStore.edit { it[Keys.LAYOUT_ALBUMS] = v.name }
+  suspend fun setArtistsLayout(v: LibraryLayout) = ctx.dataStore.edit { it[Keys.LAYOUT_ARTISTS] = v.name }
+  suspend fun setGalleryColumns(v: Int) =
+          ctx.dataStore.edit { it[Keys.GALLERY_COLUMNS] = v.coerceIn(2, 3) }
 
   /**
    * Non-secret Freebox connection metadata (refreshed by every LAN discovery) and
