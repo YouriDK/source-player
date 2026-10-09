@@ -91,6 +91,20 @@ interface SongDao {
   @Query("DELETE FROM songs") suspend fun deleteAll()
 
   @Query("SELECT COUNT(*) FROM songs") suspend fun count(): Int
+
+  @Query("SELECT id FROM songs WHERE source = :source")
+  suspend fun getIdsBySource(source: String): List<Long>
+
+  @Query("SELECT * FROM songs WHERE source = :source")
+  suspend fun getAllBySource(source: String): List<SongEntity>
+
+  @Query("SELECT * FROM songs WHERE source = :source ORDER BY title ASC")
+  fun getAllBySourceFlow(source: String): Flow<List<SongEntity>>
+
+  @Query("SELECT COUNT(*) FROM songs WHERE source = :source")
+  fun countBySourceFlow(source: String): Flow<Int>
+
+  @Query("DELETE FROM songs WHERE source = :source") suspend fun deleteBySource(source: String)
 }
 
 // ---- Albums ----
@@ -113,6 +127,17 @@ interface AlbumDao {
   @Query("SELECT id FROM albums") suspend fun getAllIds(): List<Long>
 
   @Query("DELETE FROM albums WHERE id IN (:ids)") suspend fun deleteByIds(ids: List<Long>)
+
+  @Query("SELECT id FROM albums WHERE source = :source")
+  suspend fun getIdsBySource(source: String): List<Long>
+
+  @Query("SELECT * FROM albums WHERE source = :source")
+  suspend fun getAllBySource(source: String): List<AlbumEntity>
+
+  @Query("SELECT COUNT(*) FROM albums WHERE source = :source")
+  fun countBySourceFlow(source: String): Flow<Int>
+
+  @Query("DELETE FROM albums WHERE source = :source") suspend fun deleteBySource(source: String)
 }
 
 // ---- Artists ----
@@ -131,6 +156,17 @@ interface ArtistDao {
   @Query("SELECT id FROM artists") suspend fun getAllIds(): List<Long>
 
   @Query("DELETE FROM artists WHERE id IN (:ids)") suspend fun deleteByIds(ids: List<Long>)
+
+  @Query("SELECT id FROM artists WHERE source = :source")
+  suspend fun getIdsBySource(source: String): List<Long>
+
+  @Query("SELECT * FROM artists WHERE source = :source")
+  suspend fun getAllBySource(source: String): List<ArtistEntity>
+
+  @Query("SELECT COUNT(*) FROM artists WHERE source = :source")
+  fun countBySourceFlow(source: String): Flow<Int>
+
+  @Query("DELETE FROM artists WHERE source = :source") suspend fun deleteBySource(source: String)
 }
 
 // ---- Genres ----
@@ -143,6 +179,17 @@ interface GenreDao {
   @Query("SELECT id FROM genres") suspend fun getAllIds(): List<Long>
 
   @Query("DELETE FROM genres WHERE id IN (:ids)") suspend fun deleteByIds(ids: List<Long>)
+
+  @Query("SELECT id FROM genres WHERE source = :source")
+  suspend fun getIdsBySource(source: String): List<Long>
+
+  @Query("SELECT * FROM genres WHERE source = :source")
+  suspend fun getAllBySource(source: String): List<GenreEntity>
+
+  @Query("SELECT COUNT(*) FROM genres WHERE source = :source")
+  fun countBySourceFlow(source: String): Flow<Int>
+
+  @Query("DELETE FROM genres WHERE source = :source") suspend fun deleteBySource(source: String)
 }
 
 // ---- Playlists ----
@@ -150,6 +197,27 @@ interface GenreDao {
 interface PlaylistDao {
   @Query("SELECT * FROM playlists ORDER BY createdAt DESC")
   fun getAllFlow(): Flow<List<PlaylistEntity>>
+
+  @Query("SELECT * FROM playlists WHERE source = :source ORDER BY createdAt DESC")
+  fun getAllBySourceFlow(source: String): Flow<List<PlaylistEntity>>
+
+  /**
+   * Drops a mode's playlists and their entries in one transaction (`playlist_songs` has no foreign
+   * key, so entries are removed explicitly).
+   */
+  @Transaction
+  suspend fun deleteBySource(source: String) {
+    deleteEntriesBySource(source)
+    deletePlaylistsBySource(source)
+  }
+
+  @Query(
+          "DELETE FROM playlist_songs WHERE playlistId IN (SELECT id FROM playlists WHERE source = :source)"
+  )
+  suspend fun deleteEntriesBySource(source: String)
+
+  @Query("DELETE FROM playlists WHERE source = :source")
+  suspend fun deletePlaylistsBySource(source: String)
 
   @Query("SELECT * FROM playlists WHERE id = :id LIMIT 1")
   suspend fun getById(id: Long): PlaylistEntity?
