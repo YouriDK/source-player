@@ -251,4 +251,7 @@ dependencies {
     // Performance
     implementation(libs.profileinstaller)
     debugImplementation(libs.leakcanary)
+
+    // Unit tests (JVM, pure Kotlin code only)
+    testImplementation(libs.junit)
 }
