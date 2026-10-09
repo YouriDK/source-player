@@ -58,7 +58,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import com.source.player.data.db.entity.*
+import com.source.player.ui.components.ChooseMusicFolderState
 import com.source.player.ui.components.Hairline
+import com.source.player.ui.components.StreamStatusBanner
+import com.source.player.ui.components.openMusicFolderPicker
 import com.source.player.ui.components.MonoSize
 import com.source.player.ui.components.MonoText
 import com.source.player.ui.components.PillTab
@@ -68,6 +71,7 @@ import com.source.player.ui.icons.HugeIcons
 import com.source.player.ui.navigation.Routes
 import com.source.player.ui.theme.sourceColors
 import com.source.player.ui.theme.sourceText
+import com.source.player.ui.viewmodel.LibraryModeViewModel
 import com.source.player.ui.viewmodel.LibraryTab
 import com.source.player.ui.viewmodel.LibraryViewModel
 import com.source.player.ui.viewmodel.PlayerViewModel
@@ -79,7 +83,11 @@ fun LibraryScreen(
         navController: NavController,
         vm: LibraryViewModel = hiltViewModel(),
         playerVm: PlayerViewModel = hiltViewModel(),
+        modeVm: LibraryModeViewModel = hiltViewModel(),
 ) {
+    val modeStatus by modeVm.status.collectAsStateWithLifecycle()
+    // Stream mode without a music folder: nothing to list, offer the picker instead.
+    val needsMusicFolder = modeStatus?.needsMusicFolder == true
     val filteredSongs by vm.filteredSongs.collectAsStateWithLifecycle()
     val filteredAlbums by vm.filteredAlbums.collectAsStateWithLifecycle()
     val filteredArtists by vm.filteredArtists.collectAsStateWithLifecycle()
@@ -150,6 +158,13 @@ fun LibraryScreen(
                                 ),
                         vm = vm,
                 )
+            }
+
+            StreamStatusBanner(modeStatus?.banner, navController)
+
+            if (needsMusicFolder) {
+                ChooseMusicFolderState(onChoose = { navController.openMusicFolderPicker() })
+                return@Column
             }
 
             // Tabs ----------------------------------------------------
@@ -223,7 +238,7 @@ fun LibraryScreen(
         // When the mini player is visible it stacks directly on top of the tab
         // bar, so the search bar must clear it (+66dp). Matches the design's
         // bottom-stack order: tab bar → mini player → search bar.
-        FloatingSearchBar(
+        if (!needsMusicFolder) FloatingSearchBar(
                 query = query,
                 placeholder = placeholderFor(selectedTab),
                 onChange = vm::onQueryChange,

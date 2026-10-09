@@ -41,16 +41,20 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import com.source.player.data.db.entity.SongEntity
+import com.source.player.data.mode.LibraryModeStatus
 import com.source.player.ui.components.EditorialDivider
 import com.source.player.ui.components.Hairline
 import com.source.player.ui.components.MonoSize
 import com.source.player.ui.components.MonoText
 import com.source.player.ui.components.SectionKicker
+import com.source.player.ui.components.StreamStatusBanner
+import com.source.player.ui.components.openMusicFolderPicker
 import com.source.player.ui.icons.HugeIcons
 import com.source.player.ui.navigation.Routes
 import com.source.player.ui.theme.sourceColors
 import com.source.player.ui.theme.sourceText
 import com.source.player.ui.viewmodel.HomeViewModel
+import com.source.player.ui.viewmodel.LibraryModeViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -60,8 +64,11 @@ import kotlinx.coroutines.delay
 fun HomeScreen(
         navController: NavController,
         vm: HomeViewModel = hiltViewModel(),
+        modeVm: LibraryModeViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
+    val modeStatus by modeVm.status.collectAsStateWithLifecycle()
+    val indexingProgress by vm.indexingProgress.collectAsStateWithLifecycle()
     val currentSong by vm.currentSong.collectAsStateWithLifecycle()
     val songCount by vm.songCount.collectAsStateWithLifecycle()
     val scanProgress by vm.scanProgress.collectAsStateWithLifecycle()
@@ -90,6 +97,31 @@ fun HomeScreen(
     val colors = MaterialTheme.sourceColors
     val text = MaterialTheme.sourceText
 
+    // Mode / count not read yet: plain background rather than a flash of the wrong state.
+    val status = modeStatus
+    if (status == null || songCount < 0) {
+        Box(Modifier.fillMaxSize().background(colors.bg))
+        return
+    }
+
+    if (songCount == 0 && status.isStream) {
+        // Stream never asks for the audio permission: the Freebox library needs none.
+        EmptyStreamLibrary(
+                status = status,
+                indexingProgress = indexingProgress,
+                onChooseFolder = { navController.openMusicFolderPicker() },
+                onBrowse = {
+                    navController.navigate(Routes.FOLDERS) {
+                        popUpTo(navController.graph.startDestinationId) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                },
+                banner = { StreamStatusBanner(status.banner, navController) },
+        )
+        return
+    }
+
     if (songCount == 0) {
         EmptyLibrary(
                 permissionGranted = permissionGranted,
@@ -115,6 +147,11 @@ fun HomeScreen(
     LazyColumn(modifier = Modifier.fillMaxSize().systemBarsPadding().background(colors.bg)) {
         // Masthead -------------------------------------------------------
         item { Masthead() }
+
+        // Stream status (unreachable, pairing lost, indexing…) ------------
+        if (status.banner != null) {
+            item { StreamStatusBanner(status.banner, navController, Modifier.padding(top = 8.dp)) }
+        }
 
         // Feature track -------------------------------------------------
         item {
@@ -444,6 +481,69 @@ private fun LateListenRow(position: Int, song: SongEntity, onClick: () -> Unit) 
 }
 
 // ── Empty state / scan CTA (kept Vinyl-lite) ──────────────────────────────
+/** Home in Stream mode before anything from the music folder is indexed. */
+@Composable
+private fun EmptyStreamLibrary(
+        status: LibraryModeStatus,
+        indexingProgress: String?,
+        onChooseFolder: () -> Unit,
+        onBrowse: () -> Unit,
+        banner: @Composable () -> Unit,
+) {
+    val colors = MaterialTheme.sourceColors
+    val text = MaterialTheme.sourceText
+    Column(Modifier.fillMaxSize().systemBarsPadding().background(colors.bg)) {
+        banner()
+        Column(
+                modifier = Modifier.fillMaxSize().padding(24.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                    text = "Nothing\nhere, yet.",
+                    style = text.queueHeadline56,
+                    color = colors.textDim,
+                    textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(20.dp))
+            SectionKicker(label = "Stream", color = colors.accent, align = TextAlign.Center)
+            Spacer(Modifier.height(30.dp))
+            when {
+                status.needsMusicFolder ->
+                        Button(onClick = onChooseFolder, shape = RoundedCornerShape(100.dp)) {
+                            Text("Choose your music folder")
+                        }
+                indexingProgress != null ->
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator(
+                                    modifier = Modifier.size(28.dp),
+                                    color = colors.accent,
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                    text = indexingProgress,
+                                    style = text.bodyMedium14,
+                                    color = colors.textDim,
+                            )
+                        }
+                else ->
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                    "Tracks from your music folder show up here once indexed.",
+                                    style = text.bodyMedium14,
+                                    color = colors.textDim,
+                                    textAlign = TextAlign.Center,
+                            )
+                            Spacer(Modifier.height(14.dp))
+                            Button(onClick = onBrowse, shape = RoundedCornerShape(100.dp)) {
+                                Text("Browse your music folder")
+                            }
+                        }
+            }
+        }
+    }
+}
+
 @Composable
 private fun EmptyLibrary(
         permissionGranted: Boolean,

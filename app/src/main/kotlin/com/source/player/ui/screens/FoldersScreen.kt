@@ -38,19 +38,70 @@ import com.source.player.ui.components.MonoText
 import com.source.player.ui.icons.HugeIcons
 import com.source.player.ui.theme.sourceColors
 import com.source.player.ui.theme.sourceText
-import com.source.player.ui.navigation.Routes
+import com.source.player.ui.components.ChooseMusicFolderState
+import com.source.player.ui.components.StreamStatusBanner
+import com.source.player.ui.components.openMusicFolderPicker
+import com.source.player.data.mode.StreamBanner
 import com.source.player.ui.viewmodel.FoldersViewModel
-import com.source.player.ui.viewmodel.FreeboxStatusViewModel
+import com.source.player.ui.viewmodel.LibraryModeViewModel
+
+/**
+ * The Folders tab follows the library mode: on-device folders in Local, the Freebox
+ * music folder (live browser rooted there) in Stream.
+ */
+@Composable
+fun FoldersTab(
+        navController: NavController,
+        modeVm: LibraryModeViewModel = hiltViewModel(),
+) {
+        val status by modeVm.status.collectAsStateWithLifecycle()
+        val st = status
+        when {
+                st == null -> Box(Modifier.fillMaxSize().background(MaterialTheme.sourceColors.bg))
+                !st.isStream -> FoldersScreen(navController)
+                st.musicFolder == null ->
+                        Box(Modifier.fillMaxSize().systemBarsPadding().background(MaterialTheme.sourceColors.bg)) {
+                                Column(Modifier.fillMaxSize()) {
+                                        Text(
+                                                text = "Folders",
+                                                style = MaterialTheme.sourceText.editorialHeadline32,
+                                                color = MaterialTheme.sourceColors.text,
+                                                modifier =
+                                                        Modifier.padding(
+                                                                start = 24.dp,
+                                                                end = 24.dp,
+                                                                top = 14.dp,
+                                                                bottom = 8.dp,
+                                                        ),
+                                        )
+                                        StreamStatusBanner(st.banner, navController)
+                                        ChooseMusicFolderState(
+                                                onChoose = { navController.openMusicFolderPicker() }
+                                        )
+                                }
+                        }
+                else ->
+                        FreeboxScreen(
+                                navController,
+                                banner = {
+                                        // The body already says so (with the same button).
+                                        StreamStatusBanner(
+                                                st.banner.takeUnless {
+                                                        it == StreamBanner.MusicFolderMissing
+                                                },
+                                                navController,
+                                        )
+                                },
+                        )
+        }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FoldersScreen(
         navController: NavController,
         vm: FoldersViewModel = hiltViewModel(),
-        freeboxVm: FreeboxStatusViewModel = hiltViewModel(),
 ) {
-        val freeboxPaired by freeboxVm.isPaired.collectAsStateWithLifecycle()
-        val freeboxName by freeboxVm.boxName.collectAsStateWithLifecycle()
         val breadcrumbs by vm.breadcrumbs.collectAsStateWithLifecycle()
         val subFolders by vm.subFolders.collectAsStateWithLifecycle()
         val songsInFolder by vm.songsInFolder.collectAsStateWithLifecycle()
@@ -196,19 +247,6 @@ fun FoldersScreen(
                                                                 )
                                                         }
                                                 }
-                                        }
-                                }
-
-                                if (currentPath == null) {
-                                        item(key = "freebox-entry") {
-                                                BrowserFolderRow(
-                                                        name = "Freebox",
-                                                        meta =
-                                                                if (freeboxPaired) freeboxName ?: "Browse your Freebox"
-                                                                else "Connect in Settings",
-                                                        icon = HugeIcons.Cloud,
-                                                        onClick = { navController.navigate(Routes.FREEBOX) },
-                                                )
                                         }
                                 }
 
