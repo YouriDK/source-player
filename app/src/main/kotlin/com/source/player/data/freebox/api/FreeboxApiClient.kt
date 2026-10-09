@@ -14,11 +14,16 @@ import io.ktor.client.request.post
 import io.ktor.client.request.prepareGet
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.HttpStatusCode
 import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
+import io.ktor.utils.io.ByteReadChannel
+import io.ktor.utils.io.discard
+import io.ktor.utils.io.readAvailable
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.builtins.ListSerializer
@@ -216,6 +221,77 @@ class FreeboxApiClient @Inject constructor(
         }
     }
 
+    /**
+     * Reads at most [length] bytes of `/dl/<pathB64>` starting at [offset], streaming
+     * the body and releasing the response as soon as enough bytes were read — never
+     * buffers the whole file, unlike [download].
+     *
+     * - 206: the body is the requested slice; a short result means [offset] + [length]
+     *   is past the end of the file.
+     * - 200 (Range ignored): the body starts at byte 0, so [offset] bytes are skipped
+     *   first when that stays within [MAX_RANGE_SKIP_BYTES]; beyond that the call fails
+     *   with `FreeboxError.Api("range_not_supported")` rather than pulling megabytes.
+     * - 416: [offset] is at/after the end of the file → empty array.
+     * - Other non-2xx: mapped like the API errors (403 → auth error, so
+     *   FreeboxSessionManager.withSession re-logs in and retries).
+     */
+    suspend fun readRange(
+        base: String,
+        sessionToken: String,
+        pathB64: String,
+        offset: Long,
+        length: Int,
+    ): FbxResult<ByteArray> {
+        require(offset >= 0) { "offset must be >= 0" }
+        require(length >= 0) { "length must be >= 0" }
+        if (length == 0) return FbxResult.Ok(ByteArray(0))
+        val url = "$base/dl/$pathB64"
+        val last = offset + length - 1
+        return try {
+            http.prepareGet(url) {
+                header(X_FBX_APP_AUTH, sessionToken)
+                header(HttpHeaders.AcceptEncoding, "identity")
+                header(HttpHeaders.Range, "bytes=$offset-$last")
+            }.execute { response ->
+                // Leaving execute{} cancels whatever is left of the body (no full drain).
+                when {
+                    response.status == HttpStatusCode.PartialContent ->
+                        FbxResult.Ok(response.bodyAsChannel().readUpTo(length))
+                    response.status == HttpStatusCode.RequestedRangeNotSatisfiable ->
+                        FbxResult.Ok(ByteArray(0))
+                    response.status.isSuccess() -> {
+                        if (offset > MAX_RANGE_SKIP_BYTES) {
+                            logHttpFailure(url, response.status.value, "range_not_supported")
+                            FbxResult.Err(FreeboxError.Api("range_not_supported"))
+                        } else {
+                            val channel = response.bodyAsChannel()
+                            if (offset > 0) channel.discard(offset)
+                            FbxResult.Ok(channel.readUpTo(length))
+                        }
+                    }
+                    else -> FbxResult.Err(errorFromBody(url, response))
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logTransportFailure(url, e)
+            FbxResult.Err(FreeboxError.Network(e))
+        }
+    }
+
+    /** Reads until [max] bytes or end of stream; the result is trimmed to what was read. */
+    private suspend fun ByteReadChannel.readUpTo(max: Int): ByteArray {
+        val buffer = ByteArray(max)
+        var read = 0
+        while (read < max) {
+            val n = readAvailable(buffer, read, max - read)
+            if (n < 0) break
+            read += n
+        }
+        return if (read == max) buffer else buffer.copyOf(read)
+    }
+
     /** Maps a non-2xx response: Freebox envelope error_code when present, bare HTTP status otherwise. */
     private suspend fun errorFromBody(url: String, response: HttpResponse): FreeboxError {
         val status = response.status.value
@@ -302,6 +378,9 @@ class FreeboxApiClient @Inject constructor(
         const val FREEBOX_HTTP = "freebox"
         const val X_FBX_APP_AUTH = "X-Fbx-App-Auth"
         const val DISCOVERY_TIMEOUT_MS = 2_500L
+
+        /** Bytes [readRange] is willing to discard when the box ignores Range (HTTP 200). */
+        const val MAX_RANGE_SKIP_BYTES = 1L shl 20
         private const val TAG = "SourceFbx"
     }
 }

@@ -42,7 +42,7 @@ class FreeboxSessionManager @Inject constructor(
             is FbxResult.Ok -> resolved.value
             is FbxResult.Err -> return resolved
         }
-        val token = sessionToken ?: when (val login = login(endpoint.base)) {
+        val token = sessionToken ?: when (val login = ensureSession(endpoint.base, stale = null)) {
             is FbxResult.Ok -> login.value
             is FbxResult.Err -> return login
         }
@@ -50,7 +50,9 @@ class FreeboxSessionManager @Inject constructor(
         val error = (first as? FbxResult.Err)?.error ?: return first
         if (!error.isAuthError()) return first
 
-        return when (val login = login(endpoint.base)) {
+        // Parallel calls failing on the same expired token: only the first re-logs in,
+        // the others pick up the session it opened.
+        return when (val login = ensureSession(endpoint.base, stale = token)) {
             is FbxResult.Ok -> block(endpoint.base, login.value)
             is FbxResult.Err -> login
         }
@@ -71,7 +73,7 @@ class FreeboxSessionManager @Inject constructor(
             is FbxResult.Ok -> resolved.value
             is FbxResult.Err -> return resolved
         }
-        val token = sessionToken ?: when (val login = login(endpoint.base)) {
+        val token = sessionToken ?: when (val login = ensureSession(endpoint.base, stale = null)) {
             is FbxResult.Ok -> login.value
             is FbxResult.Err -> return login
         }
@@ -87,7 +89,20 @@ class FreeboxSessionManager @Inject constructor(
         return login(endpoint.base)
     }
 
-    private suspend fun login(base: String): FbxResult<String> = loginMutex.withLock {
+    /**
+     * Returns the current session unless it is missing or equal to [stale] (the token a
+     * call just saw rejected); otherwise logs in. Checked under [loginMutex] so callers
+     * queued behind a login reuse its result instead of opening one session each.
+     */
+    private suspend fun ensureSession(base: String, stale: String?): FbxResult<String> = loginMutex.withLock {
+        sessionToken?.takeIf { it != stale }?.let { return FbxResult.Ok(it) }
+        loginLocked(base)
+    }
+
+    private suspend fun login(base: String): FbxResult<String> = loginMutex.withLock { loginLocked(base) }
+
+    /** Challenge → HMAC → session. Caller holds [loginMutex]. */
+    private suspend fun loginLocked(base: String): FbxResult<String> {
         val appToken = withContext(Dispatchers.IO) { tokenStore.appToken }
         if (appToken == null) {
             log("login: no app_token stored — not paired")
