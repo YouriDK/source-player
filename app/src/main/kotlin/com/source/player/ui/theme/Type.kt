@@ -93,7 +93,6 @@ data class SourceTextStyles(
         val libraryLetter64: TextStyle,
         val queueHeadline56: TextStyle,
         val editorialHeadline32: TextStyle,
-        val masthead30: TextStyle,
         val categoryLabel26: TextStyle,
         val categoryLabel24: TextStyle,
         val trackTitle22: TextStyle,
@@ -164,14 +163,6 @@ data class SourceTextStyles(
                                                 fontSize = 32.sp,
                                                 lineHeight = 1.05.em,
                                                 letterSpacing = (-0.019).em,
-                                        ),
-                                masthead30 =
-                                        TextStyle(
-                                                fontFamily = Manrope,
-                                                fontWeight = FontWeight.SemiBold,
-                                                fontSize = 30.sp,
-                                                lineHeight = 1.0.em,
-                                                letterSpacing = (-0.027).em,
                                         ),
                                 categoryLabel26 =
                                         TextStyle(

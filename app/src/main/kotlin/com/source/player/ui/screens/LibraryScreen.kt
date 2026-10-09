@@ -58,9 +58,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import com.source.player.data.db.entity.*
-import com.source.player.ui.components.ChooseMusicFolderState
 import com.source.player.ui.components.Hairline
 import com.source.player.ui.components.StreamStatusBanner
+import com.source.player.ui.components.openFoldersTab
 import com.source.player.ui.components.openMusicFolderPicker
 import com.source.player.ui.components.MonoSize
 import com.source.player.ui.components.MonoText
@@ -86,8 +86,27 @@ fun LibraryScreen(
         modeVm: LibraryModeViewModel = hiltViewModel(),
 ) {
     val modeStatus by modeVm.status.collectAsStateWithLifecycle()
-    // Stream mode without a music folder: nothing to list, offer the picker instead.
-    val needsMusicFolder = modeStatus?.needsMusicFolder == true
+    val songCount by vm.songCount.collectAsStateWithLifecycle()
+    val scanProgress by vm.scanProgress.collectAsStateWithLifecycle()
+    val indexingProgress by vm.indexingProgress.collectAsStateWithLifecycle()
+    val permission = rememberAudioPermissionState(onGranted = { vm.scanLibrary() })
+    // Nothing to list: the body shows a state with its action instead of the lists.
+    // Stream never asks for the audio permission: the Freebox library needs none.
+    val emptyState: LibraryEmptyState? =
+            modeStatus.let { status ->
+                when {
+                    status == null -> LibraryEmptyState.Loading
+                    status.needsMusicFolder -> LibraryEmptyState.ChooseMusicFolder
+                    !status.isStream && !permission.granted -> LibraryEmptyState.AudioPermission
+                    songCount < 0 -> LibraryEmptyState.Loading
+                    songCount > 0 -> null
+                    status.isStream ->
+                            if (indexingProgress != null) LibraryEmptyState.Indexing
+                            else LibraryEmptyState.NoStreamTracks
+                    scanProgress != null -> LibraryEmptyState.Scanning
+                    else -> LibraryEmptyState.NoLocalTracks
+                }
+            }
     val filteredSongs by vm.filteredSongs.collectAsStateWithLifecycle()
     val filteredAlbums by vm.filteredAlbums.collectAsStateWithLifecycle()
     val filteredArtists by vm.filteredArtists.collectAsStateWithLifecycle()
@@ -162,8 +181,16 @@ fun LibraryScreen(
 
             StreamStatusBanner(modeStatus?.banner, navController)
 
-            if (needsMusicFolder) {
-                ChooseMusicFolderState(onChoose = { navController.openMusicFolderPicker() })
+            if (emptyState != null) {
+                LibraryEmptyBody(
+                        state = emptyState,
+                        permission = permission,
+                        scanProgress = scanProgress,
+                        indexingProgress = indexingProgress,
+                        onChooseFolder = { navController.openMusicFolderPicker() },
+                        onScan = { vm.scanLibrary() },
+                        onBrowseFolder = { navController.openFoldersTab() },
+                )
                 return@Column
             }
 
@@ -238,7 +265,7 @@ fun LibraryScreen(
         // When the mini player is visible it stacks directly on top of the tab
         // bar, so the search bar must clear it (+66dp). Matches the design's
         // bottom-stack order: tab bar → mini player → search bar.
-        if (!needsMusicFolder) FloatingSearchBar(
+        if (emptyState == null) FloatingSearchBar(
                 query = query,
                 placeholder = placeholderFor(selectedTab),
                 onChange = vm::onQueryChange,

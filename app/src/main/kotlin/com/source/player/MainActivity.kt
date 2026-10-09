@@ -40,8 +40,8 @@ class MainActivity : ComponentActivity() {
    */
   private val permissionLauncher =
           registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { _ ->
-            // Results handled reactively — HomeScreen observes checkSelfPermission() via
-            // ViewModel, and Media3 handles notification display regardless of the result.
+            // Results handled reactively — the Library re-reads checkSelfPermission() on
+            // resume, and Media3 handles notification display regardless of the result.
           }
 
   override fun onCreate(savedInstanceState: Bundle?) {

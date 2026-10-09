@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.source.player.data.db.dao.*
 import com.source.player.data.db.entity.*
 import com.source.player.data.mode.LibraryModeRepository
+import com.source.player.data.scanner.MediaScanner
 import com.source.player.service.PlaybackController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -29,7 +30,31 @@ constructor(
         private val genreDao: GenreDao,
         private val controller: PlaybackController,
         private val libraryMode: LibraryModeRepository,
+        private val scanner: MediaScanner,
 ) : ViewModel() {
+        /**
+         * Track count of the active source; -1 until counted, so an empty library state
+         * never flashes at launch before the first query answers.
+         */
+        val songCount: StateFlow<Int> =
+                libraryMode.source
+                        .flatMapLatest { songDao.countBySourceFlow(it) }
+                        .distinctUntilChanged()
+                        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), -1)
+
+        /** Local scan progress ("Scanning… 42 tracks found"), null when idle. */
+        val scanProgress: StateFlow<String?> =
+                scanner.progressMessage.stateIn(
+                        viewModelScope,
+                        SharingStarted.WhileSubscribed(5_000),
+                        null,
+                )
+
+        /** Stream indexing progress, null when idle (Stream's counterpart of [scanProgress]). */
+        val indexingProgress: StateFlow<String?> = libraryMode.indexingProgress
+
+        fun scanLibrary() = viewModelScope.launch { scanner.scan() }
+
         // Every list follows the active library mode (Local / Stream): flatMapLatest drops
         // the previous source's query as soon as the mode changes.
         // distinctUntilChanged: Room re-emits on ANY table invalidation, even when the
