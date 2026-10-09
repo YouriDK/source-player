@@ -18,6 +18,8 @@ import com.source.player.data.freebox.library.ScanTrigger
 import com.source.player.data.lastfm.LastFmException
 import com.source.player.data.lastfm.LastFmRepository
 import com.source.player.data.mode.LibraryModeRepository
+import com.source.player.data.preferences.LibraryLayout
+import com.source.player.data.preferences.LibraryLayoutSettings
 import com.source.player.data.preferences.LibraryMode
 import com.source.player.data.preferences.AppPreferences
 import com.source.player.data.scanner.MediaScanner
@@ -90,6 +92,12 @@ constructor(
                 prefs.rememberLastTab.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
         val fontFamily =
                 prefs.fontFamily.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "PlusJakartaSans")
+        val libraryLayouts =
+                prefs.libraryLayouts.stateIn(
+                        viewModelScope,
+                        SharingStarted.WhileSubscribed(5_000),
+                        LibraryLayoutSettings(),
+                )
         val lastFmUser: StateFlow<String?> =
                 prefs.lastFmUser.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
@@ -114,6 +122,10 @@ constructor(
         fun setSearchBarAtBottom(v: Boolean) =
                 viewModelScope.launch { prefs.setSearchBarAtBottom(v) }
         fun setRememberLastTab(v: Boolean) = viewModelScope.launch { prefs.setRememberLastTab(v) }
+        fun setSongsLayout(v: LibraryLayout) = viewModelScope.launch { prefs.setSongsLayout(v) }
+        fun setAlbumsLayout(v: LibraryLayout) = viewModelScope.launch { prefs.setAlbumsLayout(v) }
+        fun setArtistsLayout(v: LibraryLayout) = viewModelScope.launch { prefs.setArtistsLayout(v) }
+        fun setGalleryColumns(v: Int) = viewModelScope.launch { prefs.setGalleryColumns(v) }
         fun setFontFamily(v: String) = viewModelScope.launch { prefs.setFontFamily(v) }
 
         fun loginLastFm(username: String, password: String) {

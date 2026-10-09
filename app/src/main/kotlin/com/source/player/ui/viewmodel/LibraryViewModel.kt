@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.source.player.data.db.dao.*
 import com.source.player.data.db.entity.*
 import com.source.player.data.mode.LibraryModeRepository
+import com.source.player.data.preferences.AppPreferences
+import com.source.player.data.preferences.LibraryLayoutSettings
 import com.source.player.data.scanner.MediaScanner
 import com.source.player.service.PlaybackController
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -31,7 +33,16 @@ constructor(
         private val controller: PlaybackController,
         private val libraryMode: LibraryModeRepository,
         private val scanner: MediaScanner,
+        prefs: AppPreferences,
 ) : ViewModel() {
+        /** Per-tab layouts (shared by Local and Stream); defaults match the original rendering. */
+        val layouts: StateFlow<LibraryLayoutSettings> =
+                prefs.libraryLayouts.stateIn(
+                        viewModelScope,
+                        SharingStarted.WhileSubscribed(5_000),
+                        LibraryLayoutSettings(),
+                )
+
         /**
          * Track count of the active source; -1 until counted, so an empty library state
          * never flashes at launch before the first query answers.
