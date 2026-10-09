@@ -105,6 +105,22 @@ interface SongDao {
   fun countBySourceFlow(source: String): Flow<Int>
 
   @Query("DELETE FROM songs WHERE source = :source") suspend fun deleteBySource(source: String)
+
+  // Library mode
+  @Query(
+          """
+        SELECT * FROM songs
+        WHERE source = :source
+          AND (title LIKE '%' || :q || '%'
+           OR artist LIKE '%' || :q || '%'
+           OR album LIKE '%' || :q || '%')
+        LIMIT 60
+    """
+  )
+  suspend fun searchBySource(q: String, source: String): List<SongEntity>
+
+  @Query("SELECT * FROM songs WHERE source = :source ORDER BY dateAdded DESC LIMIT :limit")
+  fun getRecentlyAddedBySource(limit: Int, source: String): Flow<List<SongEntity>>
 }
 
 // ---- Albums ----
@@ -138,6 +154,15 @@ interface AlbumDao {
   fun countBySourceFlow(source: String): Flow<Int>
 
   @Query("DELETE FROM albums WHERE source = :source") suspend fun deleteBySource(source: String)
+
+  // Library mode
+  @Query("SELECT * FROM albums WHERE source = :source ORDER BY title ASC")
+  fun getAllBySourceFlow(source: String): Flow<List<AlbumEntity>>
+
+  @Query(
+          "SELECT * FROM albums WHERE source = :source AND (title LIKE '%' || :q || '%' OR artist LIKE '%' || :q || '%') LIMIT 20"
+  )
+  suspend fun searchBySource(q: String, source: String): List<AlbumEntity>
 }
 
 // ---- Artists ----
@@ -167,6 +192,13 @@ interface ArtistDao {
   fun countBySourceFlow(source: String): Flow<Int>
 
   @Query("DELETE FROM artists WHERE source = :source") suspend fun deleteBySource(source: String)
+
+  // Library mode
+  @Query("SELECT * FROM artists WHERE source = :source ORDER BY name ASC")
+  fun getAllBySourceFlow(source: String): Flow<List<ArtistEntity>>
+
+  @Query("SELECT * FROM artists WHERE source = :source AND name LIKE '%' || :q || '%' LIMIT 20")
+  suspend fun searchBySource(q: String, source: String): List<ArtistEntity>
 }
 
 // ---- Genres ----
@@ -190,6 +222,10 @@ interface GenreDao {
   fun countBySourceFlow(source: String): Flow<Int>
 
   @Query("DELETE FROM genres WHERE source = :source") suspend fun deleteBySource(source: String)
+
+  // Library mode
+  @Query("SELECT * FROM genres WHERE source = :source ORDER BY name ASC")
+  fun getAllBySourceFlow(source: String): Flow<List<GenreEntity>>
 }
 
 // ---- Playlists ----

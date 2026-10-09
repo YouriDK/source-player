@@ -6,14 +6,16 @@ import com.source.player.data.db.dao.AlbumDao
 import com.source.player.data.db.dao.ArtistDao
 import com.source.player.data.db.dao.SongDao
 import com.source.player.data.db.entity.*
+import com.source.player.data.mode.LibraryModeRepository
 import com.source.player.service.PlaybackController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.*
 
-@OptIn(FlowPreview::class)
+@OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class SearchViewModel
 @Inject
@@ -22,6 +24,7 @@ constructor(
         private val albumDao: AlbumDao,
         private val artistDao: ArtistDao,
         private val controller: PlaybackController,
+        libraryMode: LibraryModeRepository,
 ) : ViewModel() {
 
   private val _query = MutableStateFlow("")
@@ -30,29 +33,33 @@ constructor(
   // 300ms debounce — avoids a DB hit on every keystroke
   private val debouncedQuery = _query.debounce(300).distinctUntilChanged()
 
+  /** Query + active library source: results never mix Local and Stream rows. */
+  private val request: Flow<Pair<String, String>> =
+          combine(debouncedQuery, libraryMode.source) { q, source -> q to source }
+
   val songResults: StateFlow<List<SongEntity>> =
-          debouncedQuery
-                  .flatMapLatest { q ->
+          request
+                  .flatMapLatest { (q, source) ->
                     if (q.isBlank()) flowOf(emptyList())
-                    else flow { emit(songDao.search(q)) }
+                    else flow { emit(songDao.searchBySource(q, source)) }
                   }
                   .flowOn(Dispatchers.Default)
                   .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
   val albumResults: StateFlow<List<AlbumEntity>> =
-          debouncedQuery
-                  .flatMapLatest { q ->
+          request
+                  .flatMapLatest { (q, source) ->
                     if (q.isBlank()) flowOf(emptyList())
-                    else flow { emit(albumDao.search(q)) }
+                    else flow { emit(albumDao.searchBySource(q, source)) }
                   }
                   .flowOn(Dispatchers.Default)
                   .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
   val artistResults: StateFlow<List<ArtistEntity>> =
-          debouncedQuery
-                  .flatMapLatest { q ->
+          request
+                  .flatMapLatest { (q, source) ->
                     if (q.isBlank()) flowOf(emptyList())
-                    else flow { emit(artistDao.search(q)) }
+                    else flow { emit(artistDao.searchBySource(q, source)) }
                   }
                   .flowOn(Dispatchers.Default)
                   .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())

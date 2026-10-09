@@ -4,18 +4,22 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.source.player.data.db.dao.PlaylistDao
 import com.source.player.data.db.dao.SongDao
+import com.source.player.data.mode.LibraryModeRepository
 import com.source.player.data.scanner.MediaScanner
 import com.source.player.service.PlaybackController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class HomeViewModel
 @Inject
@@ -24,6 +28,7 @@ constructor(
         private val songDao: SongDao,
         private val playlistDao: PlaylistDao,
         private val controller: PlaybackController,
+        libraryMode: LibraryModeRepository,
 ) : ViewModel() {
 
         val currentSong =
@@ -33,19 +38,22 @@ constructor(
                         null
                 )
 
+        // Everything below follows the active library mode (Local / Stream).
+        private val source = libraryMode.source
+
+        /** -1 until the active source has been counted (no empty-library flash at launch). */
         val songCount =
-                songDao.countFlow()
+                source.flatMapLatest { songDao.countBySourceFlow(it) }
                         .distinctUntilChanged()
-                        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+                        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), -1)
 
         val playlists =
-                playlistDao
-                        .getAllFlow()
+                source.flatMapLatest { playlistDao.getAllBySourceFlow(it) }
                         .distinctUntilChanged()
                         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
         val recentlyAdded =
-                songDao.getRecentlyAdded(10)
+                source.flatMapLatest { songDao.getRecentlyAddedBySource(10, it) }
                         .distinctUntilChanged()
                         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
@@ -53,7 +61,7 @@ constructor(
         // Shuffling the full library runs off the main thread.
         private val quickPickSeed = System.currentTimeMillis().toInt()
         val quickPicks =
-                songDao.getAllFlow()
+                source.flatMapLatest { songDao.getAllBySourceFlow(it) }
                         .distinctUntilChanged()
                         .map { it.shuffled(kotlin.random.Random(quickPickSeed)).take(10) }
                         .flowOn(Dispatchers.Default)
@@ -69,6 +77,12 @@ constructor(
                         SharingStarted.WhileSubscribed(5_000),
                         null
                 )
+
+        /**
+         * Freebox indexing progress, null when idle (Stream mode's counterpart of [scanProgress]).
+         * TODO(lot 3): fed by FreeboxLibraryScanner through LibraryModeRepository.
+         */
+        val indexingProgress = libraryMode.indexingProgress
 
         fun scanLibrary() = viewModelScope.launch { scanner.scan() }
 

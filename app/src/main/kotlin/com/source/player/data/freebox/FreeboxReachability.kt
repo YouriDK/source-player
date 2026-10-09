@@ -53,14 +53,18 @@ constructor(
         private val resolver: EndpointResolver,
 ) {
 
-    enum class Reach { UNKNOWN, LAN, REMOTE, UNREACHABLE, NOT_PAIRED }
+    /**
+     * [AUTH_REVOKED]: a token is stored but the box refuses it (app access revoked or
+     * deleted in Freebox OS) — re-pairing fixes it, waiting does not.
+     */
+    enum class Reach { UNKNOWN, LAN, REMOTE, UNREACHABLE, NOT_PAIRED, AUTH_REVOKED }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val _state = MutableStateFlow(Reach.UNKNOWN)
     val state: StateFlow<Reach> = _state.asStateFlow()
 
-    /** False only for NOT_PAIRED / UNREACHABLE; UNKNOWN counts as available (no flash at launch). */
+    /** False for NOT_PAIRED / AUTH_REVOKED / UNREACHABLE; UNKNOWN counts as available (no flash at launch). */
     val available: StateFlow<Boolean> =
             _state.map { it.isAvailable() }.stateIn(scope, SharingStarted.Eagerly, true)
 
@@ -135,7 +139,11 @@ constructor(
                                 onFailure = { e ->
                                     log("probe failed: ${e.javaClass.simpleName}: ${e.message}")
                                     // The token may have been cleared while the probe ran.
-                                    if (client.isPaired.first()) Reach.UNREACHABLE else Reach.NOT_PAIRED
+                                    when {
+                                        !client.isPaired.first() -> Reach.NOT_PAIRED
+                                        e is FreeboxAuthException -> Reach.AUTH_REVOKED
+                                        else -> Reach.UNREACHABLE
+                                    }
                                 },
                         )
                 log("probe: $next")
@@ -150,7 +158,8 @@ constructor(
      */
     fun reportFailure() {
         if (_state.value == Reach.NOT_PAIRED) return
-        _state.value = Reach.UNREACHABLE
+        // A revoked pairing stays revoked: the re-probe below confirms or clears it.
+        if (_state.value != Reach.AUTH_REVOKED) _state.value = Reach.UNREACHABLE
         if (scheduledProbe?.isActive == true) return
         scheduledProbe =
                 scope.launch {
@@ -199,7 +208,8 @@ constructor(
     private fun NetworkCapabilities.transportKey(): String =
             TRANSPORTS.filter { hasTransport(it) }.joinToString(",")
 
-    private fun Reach.isAvailable(): Boolean = this != Reach.NOT_PAIRED && this != Reach.UNREACHABLE
+    private fun Reach.isAvailable(): Boolean =
+            this != Reach.NOT_PAIRED && this != Reach.UNREACHABLE && this != Reach.AUTH_REVOKED
 
     private fun log(message: String) {
         if (BuildConfig.DEBUG) Log.i(TAG, message)

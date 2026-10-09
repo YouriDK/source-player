@@ -12,11 +12,12 @@ import com.source.player.service.PlaybackController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
-@OptIn(FlowPreview::class)
+@OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class PlaylistDetailViewModel
 @Inject
@@ -37,9 +38,16 @@ constructor(
                   .getSongsForPlaylist(playlistId)
                   .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-  /** All songs in library (for the add-song picker) */
+  /**
+   * Songs of the playlist's own library (for the add-song picker): a Stream playlist only
+   * takes Freebox tracks, a Local one only local tracks.
+   */
   val allSongs: StateFlow<List<SongEntity>> =
-          songDao.getAllFlow()
+          _playlist
+                  .filterNotNull()
+                  .map { it.source }
+                  .distinctUntilChanged()
+                  .flatMapLatest { songDao.getAllBySourceFlow(it) }
                   .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
   private val _searchQuery = MutableStateFlow("")

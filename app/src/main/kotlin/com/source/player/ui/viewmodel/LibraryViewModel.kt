@@ -4,10 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.source.player.data.db.dao.*
 import com.source.player.data.db.entity.*
+import com.source.player.data.mode.LibraryModeRepository
 import com.source.player.service.PlaybackController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -15,7 +17,7 @@ import kotlinx.coroutines.withContext
 
 enum class LibraryTab { Songs, Albums, Artists, Playlists, Genres }
 
-@OptIn(FlowPreview::class)
+@OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class LibraryViewModel
 @Inject
@@ -26,27 +28,35 @@ constructor(
         private val playlistDao: PlaylistDao,
         private val genreDao: GenreDao,
         private val controller: PlaybackController,
+        private val libraryMode: LibraryModeRepository,
 ) : ViewModel() {
+        // Every list follows the active library mode (Local / Stream): flatMapLatest drops
+        // the previous source's query as soon as the mode changes.
         // distinctUntilChanged: Room re-emits on ANY table invalidation, even when the
         // query result is identical — dedupe before the filter pipelines below re-run.
         val songs =
-                songDao.getAllFlow()
+                libraryMode.source
+                        .flatMapLatest { songDao.getAllBySourceFlow(it) }
                         .distinctUntilChanged()
                         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
         val albums =
-                albumDao.getAllFlow()
+                libraryMode.source
+                        .flatMapLatest { albumDao.getAllBySourceFlow(it) }
                         .distinctUntilChanged()
                         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
         val artists =
-                artistDao.getAllFlow()
+                libraryMode.source
+                        .flatMapLatest { artistDao.getAllBySourceFlow(it) }
                         .distinctUntilChanged()
                         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
         val playlists =
-                playlistDao.getAllFlow()
+                libraryMode.source
+                        .flatMapLatest { playlistDao.getAllBySourceFlow(it) }
                         .distinctUntilChanged()
                         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
         val genres =
-                genreDao.getAllFlow()
+                libraryMode.source
+                        .flatMapLatest { genreDao.getAllBySourceFlow(it) }
                         .distinctUntilChanged()
                         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
@@ -133,7 +143,11 @@ constructor(
 
         fun createPlaylist(name: String) =
                 viewModelScope.launch {
-                        if (name.isNotBlank()) playlistDao.insert(PlaylistEntity(name = name))
+                        if (name.isBlank()) return@launch
+                        // Playlists belong to the mode they were created in.
+                        playlistDao.insert(
+                                PlaylistEntity(name = name, source = libraryMode.currentSource())
+                        )
                 }
 }
 
