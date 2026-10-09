@@ -331,6 +331,35 @@ constructor(
     }
   }
 
+  /**
+   * Moves the queue item at [from] to [to] (queue sheet drag). Returns false when the
+   * controller can't take it (not bound yet, stale indices).
+   */
+  fun moveQueueItem(from: Int, to: Int): Boolean {
+    maybePushHydratedQueueToController()
+    val c = controller ?: return false
+    if (from == to || from !in 0 until c.mediaItemCount || to !in 0 until c.mediaItemCount) {
+      return false
+    }
+    c.moveMediaItem(from, to)
+    // The current item didn't change, so no transition event: its index did.
+    _queueIndex.value = c.currentMediaItemIndex
+    return true
+  }
+
+  /** Drops the queue item at [index] (queue sheet swipe); the last one stops playback. */
+  fun removeQueueItem(index: Int) {
+    maybePushHydratedQueueToController()
+    val c = controller ?: return
+    if (index !in 0 until c.mediaItemCount) return
+    if (c.mediaItemCount == 1) {
+      stopAndClear()
+      return
+    }
+    c.removeMediaItem(index)
+    _queueIndex.value = c.currentMediaItemIndex
+  }
+
   fun setRepeatMode(mode: Int) {
     controller?.repeatMode = mode
     _repeatMode.value = mode

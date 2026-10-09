@@ -87,6 +87,8 @@ constructor(
         fun skipToNext() = controller.skipToNext()
         fun skipToPrevious() = controller.skipToPrevious()
         fun skipToQueueItem(index: Int) = controller.skipToQueueItem(index)
+        fun moveQueueItem(from: Int, to: Int): Boolean = controller.moveQueueItem(from, to)
+        fun removeQueueItem(index: Int) = controller.removeQueueItem(index)
         fun setShuffleEnabled(v: Boolean) = controller.setShuffleEnabled(v)
         fun cycleRepeatMode() {
                 val next =
