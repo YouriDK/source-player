@@ -21,11 +21,12 @@ import androidx.navigation.NavController
 import com.source.player.data.mode.StreamBanner
 import com.source.player.ui.icons.HugeIcons
 import com.source.player.ui.navigation.Routes
+import com.source.player.ui.navigation.navigateToTab
 import com.source.player.ui.theme.sourceColors
 import com.source.player.ui.theme.sourceText
 
 /**
- * Stream-mode status strip shown on top of Library, Home and Folders: box unreachable,
+ * Stream-mode status strip shown on top of Library and Folders: box unreachable,
  * pairing lost, music folder missing, or indexing in progress. Renders nothing for null.
  */
 @Composable
@@ -166,13 +167,10 @@ fun ChooseMusicFolderState(onChoose: () -> Unit, modifier: Modifier = Modifier) 
 }
 
 /** Same navigation as the bottom bar's Settings tab. */
-fun NavController.openSettingsTab() {
-    navigate(Routes.SETTINGS) {
-        popUpTo(graph.startDestinationId) { saveState = true }
-        launchSingleTop = true
-        restoreState = true
-    }
-}
+fun NavController.openSettingsTab() = navigateToTab(Routes.SETTINGS)
+
+/** Same navigation as the bottom bar's Folders tab. */
+fun NavController.openFoldersTab() = navigateToTab(Routes.FOLDERS)
 
 fun NavController.openMusicFolderPicker() {
     navigate(Routes.FREEBOX_PICKER) { launchSingleTop = true }

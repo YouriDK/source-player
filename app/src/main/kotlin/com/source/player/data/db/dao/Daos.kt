@@ -118,9 +118,6 @@ interface SongDao {
     """
   )
   suspend fun searchBySource(q: String, source: String): List<SongEntity>
-
-  @Query("SELECT * FROM songs WHERE source = :source ORDER BY dateAdded DESC LIMIT :limit")
-  fun getRecentlyAddedBySource(limit: Int, source: String): Flow<List<SongEntity>>
 }
 
 // ---- Albums ----

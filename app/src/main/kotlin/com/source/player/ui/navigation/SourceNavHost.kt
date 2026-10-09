@@ -42,7 +42,6 @@ import com.source.player.ui.viewmodel.FreeboxViewModel
 
 // ---- Routes ----
 object Routes {
-  const val HOME = "home"
   const val LIBRARY = "library"
   const val SEARCH = "search"
   const val FOLDERS = "folders"
@@ -73,7 +72,6 @@ data class BottomNavItem(
 // Folders is kept as a first-class destination, as requested.
 val bottomNavItems =
         listOf(
-                BottomNavItem(Routes.HOME, "Home", HugeIcons.Home),
                 BottomNavItem(Routes.LIBRARY, "Library", HugeIcons.Library),
                 BottomNavItem(Routes.QUEUE, "Queue", HugeIcons.Playlist),
                 BottomNavItem(Routes.FOLDERS, "Folders", HugeIcons.Folder),
@@ -108,13 +106,12 @@ fun SourceNavHost() {
     Box(Modifier.padding(padding)) {
       NavHost(
               navController = navController,
-              startDestination = Routes.HOME,
+              startDestination = Routes.LIBRARY,
               enterTransition = { fadeIn(tween(200)) + slideInHorizontally { it / 4 } },
               exitTransition = { fadeOut(tween(200)) },
               popEnterTransition = { fadeIn(tween(200)) },
               popExitTransition = { fadeOut(tween(200)) + slideOutHorizontally { it / 4 } },
       ) {
-        composable(Routes.HOME) { HomeScreen(navController) }
         composable(Routes.LIBRARY) { LibraryScreen(navController) }
         composable(Routes.SEARCH) { SearchScreen(navController) }
         // Local folders or, in Stream mode, the Freebox music folder.
@@ -185,6 +182,18 @@ fun SourceNavHost() {
   }
 }
 
+/**
+ * Switches to a bottom-nav tab: each tab keeps its own back stack (saved when left,
+ * restored when selected again), and selecting the current tab twice is a no-op.
+ */
+fun NavController.navigateToTab(route: String) {
+    navigate(route) {
+        popUpTo(graph.startDestinationId) { saveState = true }
+        launchSingleTop = true
+        restoreState = true
+    }
+}
+
 @Composable
 private fun SourceBottomNav(navController: NavController, currentRoute: String?) {
     val colors = MaterialTheme.sourceColors
@@ -222,15 +231,7 @@ private fun SourceBottomNav(navController: NavController, currentRoute: String?)
                 Column(
                         modifier =
                                 Modifier.weight(1f)
-                                        .clickable {
-                                            navController.navigate(item.route) {
-                                                popUpTo(navController.graph.startDestinationId) {
-                                                    saveState = true
-                                                }
-                                                launchSingleTop = true
-                                                restoreState = true
-                                            }
-                                        }
+                                        .clickable { navController.navigateToTab(item.route) }
                                         .padding(vertical = 6.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
