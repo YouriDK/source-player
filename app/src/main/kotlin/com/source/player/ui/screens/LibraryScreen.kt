@@ -58,6 +58,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import com.source.player.data.db.entity.*
+import com.source.player.data.preferences.LibraryLayout
 import com.source.player.ui.components.Hairline
 import com.source.player.ui.components.StreamStatusBanner
 import com.source.player.ui.components.openFoldersTab
@@ -113,6 +114,7 @@ fun LibraryScreen(
     val filteredPlaylists by vm.filteredPlaylists.collectAsStateWithLifecycle()
     val filteredGenres by vm.filteredGenres.collectAsStateWithLifecycle()
 
+    val layouts by vm.layouts.collectAsStateWithLifecycle()
     val query by vm.query.collectAsStateWithLifecycle()
     val selectedTab by vm.activeTab.collectAsStateWithLifecycle()
     val nowPlaying by playerVm.currentSong.collectAsStateWithLifecycle()
@@ -220,6 +222,8 @@ fun LibraryScreen(
                             VinylSongsList(
                                     songs = filteredSongs,
                                     query = query,
+                                    layout = layouts.songs,
+                                    columns = layouts.galleryColumns,
                                     onPlayAll = { vm.playAllSongs() },
                                     onShuffleAll = { vm.shuffleAllSongs() },
                                     onSongClick = { idx ->
@@ -231,6 +235,8 @@ fun LibraryScreen(
                             VinylAlbumsGrid(
                                     albums = filteredAlbums,
                                     query = query,
+                                    layout = layouts.albums,
+                                    columns = layouts.galleryColumns,
                                     onClick = {
                                         navController.navigate(Routes.albumDetail(it.id))
                                     },
@@ -239,6 +245,8 @@ fun LibraryScreen(
                             VinylArtistsList(
                                     artists = filteredArtists,
                                     query = query,
+                                    layout = layouts.artists,
+                                    columns = layouts.galleryColumns,
                                     railAlpha = { railAlpha.value },
                                     flashLetter = flashLetter,
                                     onJump = { c -> flashLetter = c },
@@ -356,6 +364,8 @@ private fun placeholderFor(tab: LibraryTab): String =
 private fun VinylSongsList(
         songs: List<SongEntity>,
         query: String,
+        layout: LibraryLayout,
+        columns: Int,
         onPlayAll: () -> Unit,
         onShuffleAll: () -> Unit,
         onSongClick: (Int) -> Unit,
@@ -386,6 +396,12 @@ private fun VinylSongsList(
             NoResultsState(query = query)
             return@Column
         }
+        when (layout) {
+            LibraryLayout.GALLERY ->
+                    SongsGallery(songs, query, columns, onSongClick = onSongClick, onMore = onMore)
+            LibraryLayout.DETAILS ->
+                    SongsDetailsList(songs, query, onSongClick = onSongClick, onMore = onMore)
+            LibraryLayout.LIST ->
         LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 96.dp),
@@ -445,6 +461,7 @@ private fun VinylSongsList(
                 }
             }
         }
+        }
     }
 }
 
@@ -453,6 +470,8 @@ private fun VinylSongsList(
 private fun VinylAlbumsGrid(
         albums: List<AlbumEntity>,
         query: String,
+        layout: LibraryLayout,
+        columns: Int,
         onClick: (AlbumEntity) -> Unit,
 ) {
     val colors = MaterialTheme.sourceColors
@@ -461,8 +480,12 @@ private fun VinylAlbumsGrid(
         NoResultsState(query = query)
         return
     }
+    if (layout != LibraryLayout.GALLERY) {
+        AlbumsRows(albums, query, detailed = layout == LibraryLayout.DETAILS, onClick = onClick)
+        return
+    }
     LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
+            columns = GridCells.Fixed(columns),
             contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 14.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -505,6 +528,8 @@ private fun VinylAlbumsGrid(
 private fun VinylArtistsList(
         artists: List<ArtistEntity>,
         query: String,
+        layout: LibraryLayout,
+        columns: Int,
         railAlpha: () -> Float,
         flashLetter: Char?,
         onJump: (Char) -> Unit,
@@ -517,6 +542,11 @@ private fun VinylArtistsList(
         NoResultsState(query = query)
         return
     }
+    if (layout == LibraryLayout.GALLERY) {
+        ArtistsGallery(artists, query, columns, onClick)
+        return
+    }
+    val detailed = layout == LibraryLayout.DETAILS
 
     // Build letter → first-index map for jumping.
     val letterIndex =
@@ -583,7 +613,10 @@ private fun VinylArtistsList(
                         modifier =
                                 Modifier.fillMaxWidth()
                                         .clickable { onClick(artist) }
-                                        .padding(horizontal = 24.dp, vertical = 12.dp),
+                                        .padding(
+                                                horizontal = 24.dp,
+                                                vertical = if (detailed) 22.dp else 12.dp,
+                                        ),
                         verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -594,11 +627,25 @@ private fun VinylArtistsList(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                         )
-                        Text(
-                                text = "${artist.albumCount} albums · ${artist.songCount} songs",
-                                style = text.metaSmall115,
-                                color = colors.textDim,
-                        )
+                        if (detailed) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                    text = "${artist.albumCount} albums",
+                                    style = text.metaSmall115,
+                                    color = colors.textDim,
+                            )
+                            Text(
+                                    text = "${artist.songCount} songs",
+                                    style = text.metaSmall115,
+                                    color = colors.textDim,
+                            )
+                        } else {
+                            Text(
+                                    text = "${artist.albumCount} albums · ${artist.songCount} songs",
+                                    style = text.metaSmall115,
+                                    color = colors.textDim,
+                            )
+                        }
                     }
                     Text(
                             text = "→",
@@ -830,7 +877,7 @@ private fun VinylGenresList(genres: List<GenreEntity>, query: String) {
 
 // ── No-results editorial message ──────────────────────────────────────────
 @Composable
-private fun NoResultsState(query: String) {
+internal fun NoResultsState(query: String) {
     val colors = MaterialTheme.sourceColors
     val text = MaterialTheme.sourceText
     Column(
@@ -950,7 +997,7 @@ private fun FloatingSearchBar(
 }
 
 // ── Match highlighting ────────────────────────────────────────────────────
-private fun highlightMatch(source: String, query: String, accent: Color): AnnotatedString {
+internal fun highlightMatch(source: String, query: String, accent: Color): AnnotatedString {
     if (query.isBlank()) return AnnotatedString(source)
     val idx = source.lowercase().indexOf(query.lowercase())
     if (idx < 0) return AnnotatedString(source)
@@ -975,6 +1022,8 @@ fun SongsList(
     VinylSongsList(
             songs = songs,
             query = "",
+            layout = LibraryLayout.LIST,
+            columns = 2,
             onPlayAll = {},
             onShuffleAll = {},
             onSongClick = onSongClick,
