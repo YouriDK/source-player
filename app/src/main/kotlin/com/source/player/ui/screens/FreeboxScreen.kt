@@ -11,8 +11,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -21,47 +19,62 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
+import com.source.player.data.freebox.FreeboxFolder
 import com.source.player.data.freebox.RemoteEntry
 import com.source.player.ui.components.BreadcrumbChip
+import com.source.player.ui.components.BrowserEmptyState
 import com.source.player.ui.components.BrowserFolderRow
 import com.source.player.ui.components.BrowserTrackRow
 import com.source.player.ui.components.Hairline
+import com.source.player.ui.components.SectionKicker
+import com.source.player.ui.components.openMusicFolderPicker
+import com.source.player.ui.components.openSettingsTab
 import com.source.player.ui.icons.HugeIcons
-import com.source.player.ui.navigation.Routes
 import com.source.player.ui.theme.sourceColors
 import com.source.player.ui.theme.sourceText
+import com.source.player.ui.viewmodel.FreeboxBrowseMode
 import com.source.player.ui.viewmodel.FreeboxUiState
 import com.source.player.ui.viewmodel.FreeboxViewModel
 
+/**
+ * Live Freebox browser, in one of two [FreeboxBrowseMode]s:
+ * - MUSIC_FOLDER — content of the Folders tab in Stream mode, rooted at the music folder
+ *   (no way up to the disks); [banner] is the Stream status strip.
+ * - PICK — the music folder picker, rooted at the disks, with "Choose this folder" and
+ *   suggestions; pops itself once a folder is chosen.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FreeboxScreen(
         navController: NavController,
         vm: FreeboxViewModel = hiltViewModel(),
+        banner: (@Composable () -> Unit)? = null,
 ) {
     val isPaired by vm.isPaired.collectAsStateWithLifecycle()
     val boxName by vm.boxName.collectAsStateWithLifecycle()
-    val startFolder by vm.startFolder.collectAsStateWithLifecycle()
     val currentFolder by vm.currentFolder.collectAsStateWithLifecycle()
     val breadcrumbs by vm.breadcrumbs.collectAsStateWithLifecycle()
     val entries by vm.entries.collectAsStateWithLifecycle()
+    val suggestions by vm.suggestions.collectAsStateWithLifecycle()
+    val chosen by vm.chosen.collectAsStateWithLifecycle()
 
-    var menuOpen by remember { mutableStateOf(false) }
+    val picking = vm.mode == FreeboxBrowseMode.PICK
     var sheetTrack by remember { mutableStateOf<RemoteEntry?>(null) }
 
     val colors = MaterialTheme.sourceColors
     val text = MaterialTheme.sourceText
-    val openSettings = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } }
+    val openSettings = { navController.openSettingsTab() }
+
+    LaunchedEffect(chosen) { if (chosen) navController.popBackStack() }
 
     BackHandler(enabled = breadcrumbs.size > 1) { vm.goUp() }
 
@@ -75,17 +88,25 @@ fun FreeboxScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                IconButton(
-                        onClick = { if (!vm.goUp()) navController.popBackStack() },
-                        modifier = Modifier.size(32.dp),
-                ) {
-                    Icon(HugeIcons.ArrowLeft, "Back", tint = colors.text)
+                // The picker can always leave; the Folders tab only goes back up its tree.
+                if (picking || breadcrumbs.size > 1) {
+                    IconButton(
+                            onClick = { if (!vm.goUp()) navController.popBackStack() },
+                            modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(HugeIcons.ArrowLeft, "Back", tint = colors.text)
+                    }
                 }
                 Column(Modifier.weight(1f)) {
-                    Text(text = "Freebox", style = text.editorialHeadline32, color = colors.text)
-                    if (isPaired == true && !boxName.isNullOrBlank()) {
+                    Text(
+                            text = if (picking) "Music folder" else "Folders",
+                            style = text.editorialHeadline32,
+                            color = colors.text,
+                    )
+                    val subtitle = if (picking) "Choose your music folder" else boxName
+                    if (isPaired == true && !subtitle.isNullOrBlank()) {
                         Text(
-                                boxName!!,
+                                subtitle,
                                 style = text.metaSmall115,
                                 color = colors.textMute,
                                 maxLines = 1,
@@ -94,50 +115,18 @@ fun FreeboxScreen(
                     }
                 }
                 if (isPaired == true) {
-                    Box {
-                        IconButton(onClick = { menuOpen = true }) {
-                            Icon(HugeIcons.Settings, "Browser options", tint = colors.textDim)
-                        }
-                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                            DropdownMenuItem(
-                                    text = { Text("Refresh") },
-                                    leadingIcon = { Icon(HugeIcons.Refresh, null) },
-                                    onClick = {
-                                        menuOpen = false
-                                        vm.refresh()
-                                    },
-                            )
-                            val isStart =
-                                    startFolder != null && startFolder?.url == currentFolder?.url
-                            if (currentFolder != null && !isStart) {
-                                DropdownMenuItem(
-                                        text = { Text("Set as start folder") },
-                                        leadingIcon = { Icon(HugeIcons.Bookmark, null) },
-                                        onClick = {
-                                            menuOpen = false
-                                            vm.setStartFolderHere()
-                                        },
-                                )
-                            }
-                            if (startFolder != null) {
-                                DropdownMenuItem(
-                                        text = { Text("Clear start folder") },
-                                        leadingIcon = { Icon(HugeIcons.Close, null) },
-                                        onClick = {
-                                            menuOpen = false
-                                            vm.clearStartFolder()
-                                        },
-                                )
-                            }
-                        }
+                    IconButton(onClick = { vm.refresh() }) {
+                        Icon(HugeIcons.Refresh, "Refresh", tint = colors.textDim)
                     }
                 }
             }
 
+            banner?.invoke()
+
             when (isPaired) {
                 null -> CenteredProgress()
                 false ->
-                        EmptyState(
+                        BrowserEmptyState(
                                 icon = HugeIcons.Cloud,
                                 title = "Connect your Freebox",
                                 body =
@@ -176,34 +165,65 @@ fun FreeboxScreen(
 
                     Hairline(modifier = Modifier.padding(horizontal = 24.dp))
 
+                    // Picker: every screen but the disks can be chosen.
+                    if (picking && currentFolder != null) {
+                        Button(
+                                onClick = { vm.chooseCurrent() },
+                                enabled = !chosen,
+                                shape = RoundedCornerShape(100.dp),
+                                modifier =
+                                        Modifier.fillMaxWidth()
+                                                .padding(horizontal = 24.dp, vertical = 14.dp),
+                        ) { Text("Choose this folder", style = text.pillLabel12) }
+                    }
+
                     when (val state = entries) {
                         FreeboxUiState.Loading -> CenteredProgress()
                         is FreeboxUiState.Error ->
-                                EmptyState(
+                                BrowserEmptyState(
                                         icon = HugeIcons.FolderOff,
-                                        title = "Can't open this folder",
+                                        title =
+                                                if (state.musicFolderMissing) "Music folder not found"
+                                                else "Can't open this folder",
                                         body = state.message,
                                         action =
                                                 when {
+                                                    state.musicFolderMissing -> "Choose your music folder"
                                                     state.needsPairing -> "Open Settings"
                                                     state.retryable -> "Retry"
                                                     else -> null
                                                 },
                                         onAction = {
-                                            if (state.needsPairing) openSettings() else vm.retry()
+                                            when {
+                                                state.musicFolderMissing ->
+                                                        navController.openMusicFolderPicker()
+                                                state.needsPairing -> openSettings()
+                                                else -> vm.retry()
+                                            }
                                         },
                                 )
                         is FreeboxUiState.Content ->
-                                FreeboxListing(
-                                        content = state,
-                                        atRoot = currentFolder == null,
-                                        onOpen = { vm.open(it) },
-                                        onPlay = { vm.playTrack(it) },
-                                        onMore = { sheetTrack = it },
-                                        onPlayAll = { vm.playAll() },
-                                        onShuffle = { vm.shuffleAll() },
-                                        onQueueFolder = { vm.addFolderToQueue() },
-                                )
+                                if (picking) {
+                                    FreeboxPickerListing(
+                                            content = state,
+                                            atRoot = currentFolder == null,
+                                            suggestions = if (currentFolder == null) suggestions else emptyList(),
+                                            onOpen = { vm.open(it) },
+                                            onOpenFolder = { vm.open(it) },
+                                            onChoose = { vm.choose(it) },
+                                    )
+                                } else {
+                                    FreeboxListing(
+                                            content = state,
+                                            atRoot = currentFolder == null,
+                                            onOpen = { vm.open(it) },
+                                            onPlay = { vm.playTrack(it) },
+                                            onMore = { sheetTrack = it },
+                                            onPlayAll = { vm.playAll() },
+                                            onShuffle = { vm.shuffleAll() },
+                                            onQueueFolder = { vm.addFolderToQueue() },
+                                    )
+                                }
                     }
                 }
             }
@@ -249,6 +269,82 @@ fun FreeboxScreen(
     }
 }
 
+/** Picker body: suggestions (disks root only), then sub-folders; tracks are only counted. */
+@Composable
+private fun FreeboxPickerListing(
+        content: FreeboxUiState.Content,
+        atRoot: Boolean,
+        suggestions: List<FreeboxFolder>,
+        onOpen: (RemoteEntry) -> Unit,
+        onOpenFolder: (FreeboxFolder) -> Unit,
+        onChoose: (FreeboxFolder) -> Unit,
+) {
+    val colors = MaterialTheme.sourceColors
+    val text = MaterialTheme.sourceText
+
+    if (content.folders.isEmpty() && content.tracks.isEmpty() && suggestions.isEmpty()) {
+        BrowserEmptyState(
+                icon = HugeIcons.FolderOff,
+                title = if (atRoot) "No disks found" else "Empty folder",
+                body = if (atRoot) "Plug a disk into your Freebox." else null,
+        )
+        return
+    }
+
+    LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 96.dp),
+    ) {
+        if (suggestions.isNotEmpty()) {
+            item(key = "suggested-kicker") {
+                SectionKicker(
+                        label = "Suggested",
+                        color = colors.accent,
+                        modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 4.dp),
+                )
+            }
+            items(suggestions, key = { "s:" + it.url }) { folder ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) {
+                        BrowserFolderRow(
+                                name = "Suggested: ${folder.name}",
+                                meta = "/" + folder.displayPath,
+                                onClick = { onOpenFolder(folder) },
+                        )
+                    }
+                    TextButton(
+                            onClick = { onChoose(folder) },
+                            modifier = Modifier.padding(end = 12.dp),
+                    ) { Text("Choose", style = text.pillLabel12, color = colors.accent) }
+                }
+            }
+            item(key = "suggested-sep") {
+                Hairline(modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+            }
+        }
+
+        if (content.tracks.isNotEmpty()) {
+            item(key = "track-count") {
+                Text(
+                        "${content.tracks.size} audio files in this folder",
+                        style = text.metaSmall115,
+                        color = colors.textMute,
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                )
+            }
+        }
+
+        items(content.folders, key = { "d:" + it.url }) { folder ->
+            Hairline(modifier = Modifier.padding(horizontal = 24.dp))
+            BrowserFolderRow(
+                    name = folder.name,
+                    meta = null,
+                    onClick = { onOpen(folder) },
+            )
+        }
+    }
+}
+
 @Composable
 private fun FreeboxListing(
         content: FreeboxUiState.Content,
@@ -264,7 +360,7 @@ private fun FreeboxListing(
     val text = MaterialTheme.sourceText
 
     if (content.folders.isEmpty() && content.tracks.isEmpty()) {
-        EmptyState(
+        BrowserEmptyState(
                 icon = HugeIcons.MusicNote,
                 title = if (atRoot) "No disks found" else "No audio files here",
                 body = if (atRoot) "Plug a disk into your Freebox." else null,
@@ -335,46 +431,6 @@ private fun FreeboxListing(
 private fun CenteredProgress() {
     Box(Modifier.fillMaxSize().padding(bottom = 96.dp), contentAlignment = Alignment.Center) {
         CircularProgressIndicator(Modifier.size(32.dp))
-    }
-}
-
-@Composable
-private fun EmptyState(
-        icon: ImageVector,
-        title: String,
-        body: String?,
-        action: String? = null,
-        onAction: () -> Unit = {},
-) {
-    val colors = MaterialTheme.sourceColors
-    val text = MaterialTheme.sourceText
-    Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 60.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Icon(icon, null, modifier = Modifier.size(48.dp), tint = colors.textMute)
-        Spacer(Modifier.height(12.dp))
-        Text(
-                title,
-                style = text.editorialHeadline32,
-                color = colors.textDim,
-                textAlign = TextAlign.Center,
-        )
-        if (body != null) {
-            Spacer(Modifier.height(4.dp))
-            Text(
-                    body,
-                    style = text.metaSmall115,
-                    color = colors.textMute,
-                    textAlign = TextAlign.Center,
-            )
-        }
-        if (action != null) {
-            Spacer(Modifier.height(20.dp))
-            Button(onClick = onAction, shape = RoundedCornerShape(100.dp)) {
-                Text(action, style = text.pillLabel12)
-            }
-        }
     }
 }
 

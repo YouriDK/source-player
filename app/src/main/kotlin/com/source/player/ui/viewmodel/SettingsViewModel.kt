@@ -2,7 +2,9 @@ package com.source.player.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.source.player.data.freebox.FreeboxArtCacheInfo
 import com.source.player.data.freebox.FreeboxClient
+import com.source.player.data.freebox.FreeboxReachability
 import com.source.player.data.freebox.FreeboxAuthException
 import com.source.player.data.freebox.FreeboxError
 import com.source.player.data.freebox.FreeboxFolder
@@ -11,6 +13,8 @@ import com.source.player.data.freebox.FreeboxUnreachableException
 import com.source.player.data.freebox.auth.FreeboxPairingManager.PairingEvent
 import com.source.player.data.lastfm.LastFmException
 import com.source.player.data.lastfm.LastFmRepository
+import com.source.player.data.mode.LibraryModeRepository
+import com.source.player.data.preferences.LibraryMode
 import com.source.player.data.preferences.AppPreferences
 import com.source.player.data.scanner.MediaScanner
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -21,6 +25,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -42,7 +47,8 @@ sealed interface FreeboxStatusUi {
         object Unknown : FreeboxStatusUi
         object Checking : FreeboxStatusUi
         data class Ok(val status: FreeboxStatus) : FreeboxStatusUi
-        data class Failed(val message: String) : FreeboxStatusUi
+        /** [authRefused]: the box rejects our token (access revoked) — offer Re-pair. */
+        data class Failed(val message: String, val authRefused: Boolean = false) : FreeboxStatusUi
 }
 
 @HiltViewModel
@@ -53,6 +59,9 @@ constructor(
         private val lastFmRepo: LastFmRepository,
         private val scanner: MediaScanner,
         private val freebox: FreeboxClient,
+        private val libraryModeRepo: LibraryModeRepository,
+        private val reachability: FreeboxReachability,
+        private val artCache: FreeboxArtCacheInfo,
 ) : ViewModel() {
 
         val isDarkMode = prefs.isDarkMode.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
@@ -140,8 +149,29 @@ constructor(
                 freebox.isPaired.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
         val freeboxBoxName: StateFlow<String?> =
                 freebox.boxName.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-        val freeboxStartFolder: StateFlow<FreeboxFolder?> =
-                freebox.startFolder.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        /** The Freebox music folder (stored as the former browser start folder). */
+        val freeboxMusicFolder: StateFlow<FreeboxFolder?> =
+                libraryModeRepo.musicFolder.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+        val libraryMode: StateFlow<LibraryMode> =
+                libraryModeRepo.mode.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LibraryMode.LOCAL)
+
+        /** Bytes of cached Freebox covers. TODO(lot 3): real size once FreeboxArtCache is bound. */
+        val freeboxArtCacheSize: StateFlow<Long> =
+                artCache.sizeBytes.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
+
+        private val _openMusicFolderPicker = MutableStateFlow(false)
+        /** One-shot: a fresh pairing has no music folder yet — the screen opens the picker. */
+        val openMusicFolderPicker: StateFlow<Boolean> = _openMusicFolderPicker.asStateFlow()
+
+        fun onMusicFolderPickerOpened() {
+                _openMusicFolderPicker.value = false
+        }
+
+        /** The current queue is not touched: only what the library shows changes. */
+        fun setLibraryMode(mode: LibraryMode) = viewModelScope.launch { libraryModeRepo.setMode(mode) }
+
+        fun clearFreeboxArtCache() = viewModelScope.launch { artCache.clear() }
 
         private val _freeboxPairing = MutableStateFlow<FreeboxPairingState>(FreeboxPairingState.Idle)
         val freeboxPairing: StateFlow<FreeboxPairingState> = _freeboxPairing.asStateFlow()
@@ -173,6 +203,13 @@ constructor(
                                                         PairingEvent.Granted -> {
                                                                 _freeboxPairing.value = FreeboxPairingState.Idle
                                                                 checkFreebox()
+                                                                // A re-pair keeps isPaired true, so the
+                                                                // reachability watcher would not notice.
+                                                                viewModelScope.launch { reachability.probe(force = true) }
+                                                                // Fresh pairing: pick the music folder now.
+                                                                if (libraryModeRepo.musicFolder.first() == null) {
+                                                                        _openMusicFolderPicker.value = true
+                                                                }
                                                         }
                                                         is PairingEvent.Failed ->
                                                                 _freeboxPairing.value =
@@ -213,13 +250,18 @@ constructor(
                                                                                 is FreeboxUnreachableException ->
                                                                                         "Unreachable"
                                                                                 else -> e.message ?: "Unreachable"
-                                                                        }
+                                                                        },
+                                                                        authRefused = e is FreeboxAuthException,
                                                                 )
                                                         },
                                                 )
                         }
         }
 
+        /**
+         * Unpairing also clears the music folder and puts the library back in Local mode
+         * (AppPreferences.clearFreeboxSettings), so the local library reappears at once.
+         */
         fun unpairFreebox() {
                 checkJob?.cancel()
                 viewModelScope.launch {

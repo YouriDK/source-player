@@ -23,12 +23,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.source.player.BuildConfig
 import com.source.player.data.freebox.ConnectionMode
-import com.source.player.data.freebox.FreeboxFolder
+import com.source.player.data.preferences.LibraryMode
+import com.source.player.ui.components.openMusicFolderPicker
 import com.source.player.service.AudioOutputDevice
 import com.source.player.service.DeviceCategory
 import com.source.player.ui.icons.HugeIcons
 import com.source.player.ui.theme.accentForHue
-import com.source.player.ui.navigation.Routes
 import com.source.player.ui.viewmodel.AudioOutputViewModel
 import com.source.player.ui.viewmodel.FreeboxPairingState
 import com.source.player.ui.viewmodel.FreeboxStatusUi
@@ -68,7 +68,10 @@ fun SettingsScreen(
   val scanProgress by vm.scanProgress.collectAsState()
   val freeboxPaired by vm.freeboxPaired.collectAsState()
   val freeboxBoxName by vm.freeboxBoxName.collectAsState()
-  val freeboxStartFolder by vm.freeboxStartFolder.collectAsState()
+  val freeboxMusicFolder by vm.freeboxMusicFolder.collectAsState()
+  val libraryMode by vm.libraryMode.collectAsState()
+  val freeboxArtCacheSize by vm.freeboxArtCacheSize.collectAsState()
+  val openMusicFolderPicker by vm.openMusicFolderPicker.collectAsState()
   val freeboxPairing by vm.freeboxPairing.collectAsState()
   val freeboxStatus by vm.freeboxStatus.collectAsState()
 
@@ -80,6 +83,16 @@ fun SettingsScreen(
   var showColorPicker by remember { mutableStateOf(false) }
   var showAudioOutput by remember { mutableStateOf(false) }
   var showFreeboxDialog by remember { mutableStateOf(false) }
+
+  // Right after a successful pairing: choose the music folder (it switches to Stream).
+  LaunchedEffect(openMusicFolderPicker) {
+    if (openMusicFolderPicker) {
+      vm.onMusicFolderPickerOpened()
+      showFreeboxDialog = false
+      vm.resetFreeboxPairingState()
+      navController.openMusicFolderPicker()
+    }
+  }
 
   // One background check per visit so the Freebox row can say Connected / Unreachable.
   LaunchedEffect(freeboxPaired) {
@@ -156,6 +169,21 @@ fun SettingsScreen(
                         }
                       },
       ) { showFreeboxDialog = true }
+      // Library mode + music folder only make sense with a paired box.
+      if (freeboxPaired) {
+        LibraryModeItem(mode = libraryMode, onChange = { vm.setLibraryMode(it) })
+        MusicFolderItem(
+                displayPath = freeboxMusicFolder?.displayPath,
+                onChange = { navController.openMusicFolderPicker() },
+        )
+        SettingsItem(
+                "Clear cover cache",
+                HugeIcons.Image,
+                subtitle =
+                        if (freeboxArtCacheSize > 0) formatBytes(freeboxArtCacheSize)
+                        else "Empty",
+        ) { if (freeboxArtCacheSize > 0) vm.clearFreeboxArtCache() }
+      }
     }
 
     SettingsSection("Library & UX") {
@@ -215,17 +243,11 @@ fun SettingsScreen(
     FreeboxDialog(
             paired = freeboxPaired,
             boxName = freeboxBoxName,
-            startFolder = freeboxStartFolder,
             pairing = freeboxPairing,
             status = freeboxStatus,
             onPair = { vm.startPairing(it) },
             onCancelPairing = { vm.cancelPairing() },
             onCheck = { vm.checkFreebox() },
-            onOpenBrowser = {
-              showFreeboxDialog = false
-              vm.resetFreeboxPairingState()
-              navController.navigate(Routes.FREEBOX) { launchSingleTop = true }
-            },
             onUnpair = { vm.unpairFreebox() },
             onDismiss = {
               showFreeboxDialog = false
@@ -486,6 +508,73 @@ fun LastFmLoginModal(
   )
 }
 
+// ---- Library mode ----
+
+/** Local / Stream switch (Settings → Freebox, only when a box is paired). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LibraryModeItem(mode: LibraryMode, onChange: (LibraryMode) -> Unit) {
+  ListItem(
+          headlineContent = { Text("Library mode", style = MaterialTheme.typography.bodyLarge) },
+          supportingContent = {
+            Text(
+                    when (mode) {
+                      LibraryMode.LOCAL -> "Music on this phone"
+                      LibraryMode.STREAM -> "Music folder of your Freebox"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          },
+          leadingContent = {
+            Icon(HugeIcons.Library, "Library mode", tint = MaterialTheme.colorScheme.primary)
+          },
+          trailingContent = {
+            SingleChoiceSegmentedButtonRow {
+              LibraryMode.entries.forEachIndexed { index, option ->
+                SegmentedButton(
+                        selected = mode == option,
+                        onClick = { if (mode != option) onChange(option) },
+                        shape = SegmentedButtonDefaults.itemShape(index, LibraryMode.entries.size),
+                        icon = {},
+                ) {
+                  Text(
+                          when (option) {
+                            LibraryMode.LOCAL -> "Local"
+                            LibraryMode.STREAM -> "Stream"
+                          }
+                  )
+                }
+              }
+            }
+          },
+          colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
+  )
+}
+
+/** "Music folder: /Disque dur/Musique  [Change]" — opens the picker. */
+@Composable
+private fun MusicFolderItem(displayPath: String?, onChange: () -> Unit) {
+  ListItem(
+          headlineContent = { Text("Music folder", style = MaterialTheme.typography.bodyLarge) },
+          supportingContent = {
+            Text(
+                    displayPath?.let { "/$it" } ?: "Not chosen yet",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          },
+          leadingContent = {
+            Icon(HugeIcons.Folder, "Music folder", tint = MaterialTheme.colorScheme.primary)
+          },
+          trailingContent = {
+            TextButton(onClick = onChange) { Text(if (displayPath == null) "Choose" else "Change") }
+          },
+          modifier = Modifier.clickable(onClick = onChange),
+          colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
+  )
+}
+
 // ---- Freebox Dialog ----
 
 private fun ConnectionMode.label(): String =
@@ -498,13 +587,11 @@ private fun ConnectionMode.label(): String =
 fun FreeboxDialog(
         paired: Boolean,
         boxName: String?,
-        startFolder: FreeboxFolder?,
         pairing: FreeboxPairingState,
         status: FreeboxStatusUi,
         onPair: (String?) -> Unit,
         onCancelPairing: () -> Unit,
         onCheck: () -> Unit,
-        onOpenBrowser: () -> Unit,
         onUnpair: () -> Unit,
         onDismiss: () -> Unit,
 ) {
@@ -609,17 +696,16 @@ fun FreeboxDialog(
                                     else MaterialTheme.colorScheme.primary,
                     )
                   }
-                  Text(
-                          "Start folder: ${startFolder?.displayPath?.takeIf { it.isNotEmpty() } ?: "Disks root"}",
-                          style = MaterialTheme.typography.bodySmall,
-                          color = MaterialTheme.colorScheme.onSurfaceVariant,
-                  )
                   Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
                             onClick = onCheck,
                             enabled = status !is FreeboxStatusUi.Checking,
                     ) { Text("Check connection") }
-                    OutlinedButton(onClick = onOpenBrowser) { Text("Open browser") }
+                    // Access revoked in Freebox OS: pair again without unpairing first
+                    // (keeps the music folder, the mode and the indexed library).
+                    if (status is FreeboxStatusUi.Failed && status.authRefused) {
+                      OutlinedButton(onClick = { onPair(null) }) { Text("Re-pair") }
+                    }
                   }
                 }
               }
