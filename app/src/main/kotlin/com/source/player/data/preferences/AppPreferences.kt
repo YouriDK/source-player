@@ -50,6 +50,9 @@ class AppPreferences @Inject constructor(@ApplicationContext private val ctx: Co
     val FBX_BOX_NAME = stringPreferencesKey("fbx_box_name")
     val FBX_START_FOLDER_B64 = stringPreferencesKey("fbx_start_folder_b64")
     val FBX_START_FOLDER_DISPLAY = stringPreferencesKey("fbx_start_folder_display")
+    // Freebox library index — see FreeboxLibrarySync
+    val FBX_INDEXED_ROOT = stringPreferencesKey("fbx_indexed_root")
+    val FBX_LAST_SCAN_AT = longPreferencesKey("fbx_last_scan_at")
     // Library mode (Local / Stream) — see LibraryMode
     val LIBRARY_MODE = stringPreferencesKey("library_mode")
   }
@@ -145,7 +148,29 @@ class AppPreferences @Inject constructor(@ApplicationContext private val ctx: Co
           }
 
   /**
-   * Forget every Freebox setting: endpoint metadata, box name, start folder. Stream mode
+   * fbx url of the music folder whose content is in the library tables (null = none).
+   * Differs from the music folder right after the user picks another one, until
+   * FreeboxLibrarySync has purged the old index.
+   */
+  val freeboxIndexedRoot: Flow<String?> =
+          ctx.dataStore.data.map { it[Keys.FBX_INDEXED_ROOT] }.distinctUntilChanged()
+
+  /** Wall-clock ms of the last COMPLETE Freebox scan of [freeboxIndexedRoot]; 0 = never. */
+  val freeboxLastScanAt: Flow<Long> =
+          ctx.dataStore.data.map { it[Keys.FBX_LAST_SCAN_AT] ?: 0L }.distinctUntilChanged()
+
+  /** Sets the indexed root and forgets the last scan time (it was the old root's). */
+  suspend fun setFreeboxIndexedRoot(url: String?) =
+          ctx.dataStore.edit {
+            if (url == null) it.remove(Keys.FBX_INDEXED_ROOT) else it[Keys.FBX_INDEXED_ROOT] = url
+            it.remove(Keys.FBX_LAST_SCAN_AT)
+          }
+
+  suspend fun setFreeboxLastScanAt(at: Long) =
+          ctx.dataStore.edit { it[Keys.FBX_LAST_SCAN_AT] = at }
+
+  /**
+   * Forget every Freebox setting: endpoint metadata, box name, start folder, index state. Stream mode
    * makes no sense without a paired box, so the library mode falls back to Local in the
    * same edit (unpairing while in Stream brings the local library back).
    */
@@ -160,6 +185,8 @@ class AppPreferences @Inject constructor(@ApplicationContext private val ctx: Co
             it.remove(Keys.FBX_BOX_NAME)
             it.remove(Keys.FBX_START_FOLDER_B64)
             it.remove(Keys.FBX_START_FOLDER_DISPLAY)
+            it.remove(Keys.FBX_INDEXED_ROOT)
+            it.remove(Keys.FBX_LAST_SCAN_AT)
           }
 
   /**

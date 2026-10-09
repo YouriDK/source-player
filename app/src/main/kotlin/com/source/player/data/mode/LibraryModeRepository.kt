@@ -4,6 +4,7 @@ import com.source.player.data.freebox.FreeboxClient
 import com.source.player.data.freebox.FreeboxFolder
 import com.source.player.data.freebox.FreeboxReachability
 import com.source.player.data.freebox.FreeboxReachability.Reach
+import com.source.player.data.freebox.library.FreeboxLibraryScanner
 import com.source.player.data.preferences.AppPreferences
 import com.source.player.data.preferences.LibraryMode
 import java.io.FileNotFoundException
@@ -18,7 +19,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -75,6 +75,7 @@ constructor(
         private val prefs: AppPreferences,
         private val client: FreeboxClient,
         private val reachability: FreeboxReachability,
+        scanner: FreeboxLibraryScanner,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -85,11 +86,8 @@ constructor(
 
     val musicFolder: Flow<FreeboxFolder?> = client.startFolder
 
-    /**
-     * Indexing progress of the Freebox library, null when idle.
-     * TODO(lot 3): back it with `FreeboxLibraryScanner.progressMessage` (data/freebox/library).
-     */
-    val indexingProgress: StateFlow<String?> = MutableStateFlow<String?>(null).asStateFlow()
+    /** Indexing progress of the Freebox library ("Scanning Freebox… n / N"), null when idle. */
+    val indexingProgress: StateFlow<String?> = scanner.progressMessage
 
     /** fbx url of the music folder last seen missing; null = present or not checked. */
     private val missingFolderUrl = MutableStateFlow<String?>(null)
@@ -100,8 +98,8 @@ constructor(
 
     /**
      * Picker result: stores the music folder and switches to Stream. The current queue is
-     * left alone. TODO(lot 3): FreeboxLibrarySync observes [FreeboxClient.startFolder] and
-     * purges + rescans on change — nothing to call from here.
+     * left alone. FreeboxLibrarySync observes [FreeboxClient.startFolder] and purges +
+     * rescans on change — nothing to call from here.
      */
     suspend fun chooseMusicFolder(folder: FreeboxFolder) {
         client.setStartFolder(folder)

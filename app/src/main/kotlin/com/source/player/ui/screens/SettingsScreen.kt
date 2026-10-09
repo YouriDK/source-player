@@ -1,5 +1,6 @@
 package com.source.player.ui.screens
 
+import android.text.format.DateUtils
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -74,6 +75,11 @@ fun SettingsScreen(
   val openMusicFolderPicker by vm.openMusicFolderPicker.collectAsState()
   val freeboxPairing by vm.freeboxPairing.collectAsState()
   val freeboxStatus by vm.freeboxStatus.collectAsState()
+  val freeboxIndexedCount by vm.freeboxIndexedCount.collectAsState()
+  val freeboxLastScanAt by vm.freeboxLastScanAt.collectAsState()
+  val freeboxScanProgress by vm.freeboxScanProgress.collectAsState()
+  val freeboxScanError by vm.freeboxScanError.collectAsState()
+  val confirmMobileDataScan by vm.confirmMobileDataScan.collectAsState()
 
   val audioDevices by audioVm.availableDevices.collectAsState()
   val activeAudioDevice by audioVm.activeDevice.collectAsState()
@@ -249,9 +255,33 @@ fun SettingsScreen(
             onCancelPairing = { vm.cancelPairing() },
             onCheck = { vm.checkFreebox() },
             onUnpair = { vm.unpairFreebox() },
+            indexSummary =
+                    freeboxMusicFolder?.let {
+                      freeboxIndexSummary(freeboxIndexedCount, freeboxLastScanAt, freeboxScanProgress)
+                    },
+            indexError = freeboxScanError,
             onDismiss = {
               showFreeboxDialog = false
               vm.resetFreeboxPairingState()
+            },
+    )
+  }
+
+  if (confirmMobileDataScan) {
+    AlertDialog(
+            onDismissRequest = { vm.dismissMobileDataScan() },
+            title = { Text("Scan over mobile data?") },
+            text = {
+              Text(
+                      "Scanning over mobile data may use ~0.5\u20131 MB per new track. Continue?",
+                      style = MaterialTheme.typography.bodyMedium,
+              )
+            },
+            confirmButton = {
+              TextButton(onClick = { vm.confirmMobileDataScan() }) { Text("Scan anyway") }
+            },
+            dismissButton = {
+              TextButton(onClick = { vm.dismissMobileDataScan() }) { Text("Cancel") }
             },
     )
   }
@@ -577,6 +607,24 @@ private fun MusicFolderItem(displayPath: String?, onChange: () -> Unit) {
 
 // ---- Freebox Dialog ----
 
+/** "N tracks indexed · last scan 5 minutes ago", or the running scan's progress. */
+private fun freeboxIndexSummary(count: Int, lastScanAt: Long, progress: String?): String {
+  val tracks = if (count == 1) "1 track indexed" else "$count tracks indexed"
+  val scan =
+          when {
+            progress != null -> progress
+            lastScanAt <= 0L -> "not fully scanned yet"
+            else ->
+                    "last scan " +
+                            DateUtils.getRelativeTimeSpanString(
+                                    lastScanAt,
+                                    System.currentTimeMillis(),
+                                    DateUtils.MINUTE_IN_MILLIS,
+                            )
+          }
+  return "$tracks \u00B7 $scan"
+}
+
 private fun ConnectionMode.label(): String =
         when (this) {
           ConnectionMode.LAN -> "LAN"
@@ -594,6 +642,10 @@ fun FreeboxDialog(
         onCheck: () -> Unit,
         onUnpair: () -> Unit,
         onDismiss: () -> Unit,
+        /** Freebox library index line ("N tracks indexed · last scan …"); null = no music folder. */
+        indexSummary: String? = null,
+        /** Why the last Freebox scan did not complete. */
+        indexError: String? = null,
 ) {
   val isPairing = pairing is FreeboxPairingState.Pairing
   var advanced by remember { mutableStateOf(false) }
@@ -706,6 +758,20 @@ fun FreeboxDialog(
                     if (status is FreeboxStatusUi.Failed && status.authRefused) {
                       OutlinedButton(onClick = { onPair(null) }) { Text("Re-pair") }
                     }
+                  }
+                  indexSummary?.let {
+                    Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                  }
+                  indexError?.let {
+                    Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                    )
                   }
                 }
               }

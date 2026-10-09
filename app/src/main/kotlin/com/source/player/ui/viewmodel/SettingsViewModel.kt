@@ -2,6 +2,8 @@ package com.source.player.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.source.player.data.db.dao.SongDao
+import com.source.player.data.db.entity.SOURCE_FREEBOX
 import com.source.player.data.freebox.FreeboxArtCacheInfo
 import com.source.player.data.freebox.FreeboxClient
 import com.source.player.data.freebox.FreeboxReachability
@@ -11,6 +13,8 @@ import com.source.player.data.freebox.FreeboxFolder
 import com.source.player.data.freebox.FreeboxStatus
 import com.source.player.data.freebox.FreeboxUnreachableException
 import com.source.player.data.freebox.auth.FreeboxPairingManager.PairingEvent
+import com.source.player.data.freebox.library.FreeboxLibrarySync
+import com.source.player.data.freebox.library.ScanTrigger
 import com.source.player.data.lastfm.LastFmException
 import com.source.player.data.lastfm.LastFmRepository
 import com.source.player.data.mode.LibraryModeRepository
@@ -25,6 +29,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -62,6 +67,8 @@ constructor(
         private val libraryModeRepo: LibraryModeRepository,
         private val reachability: FreeboxReachability,
         private val artCache: FreeboxArtCacheInfo,
+        private val freeboxSync: FreeboxLibrarySync,
+        songDao: SongDao,
 ) : ViewModel() {
 
         val isDarkMode = prefs.isDarkMode.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
@@ -86,8 +93,12 @@ constructor(
         val lastFmUser: StateFlow<String?> =
                 prefs.lastFmUser.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+        /** Local and Freebox scan progress, joined; null when neither is scanning. */
         val scanProgress =
-                scanner.progressMessage.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+                combine(scanner.progressMessage, freeboxSync.progressMessage) { local, fbx ->
+                                listOfNotNull(local, fbx).joinToString(" \u00B7 ").ifEmpty { null }
+                        }
+                        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
         private val _loginState = MutableStateFlow<LastFmLoginState>(LastFmLoginState.Idle)
         val loginState = _loginState.asStateFlow()
@@ -141,7 +152,36 @@ constructor(
                 _loginState.value = LastFmLoginState.Idle
         }
 
-        fun scanLibrary() = viewModelScope.launch { scanner.scan() }
+        private val _confirmMobileDataScan = MutableStateFlow(false)
+        /** The forced Freebox scan was refused off the LAN: ask before scanning over mobile data. */
+        val confirmMobileDataScan: StateFlow<Boolean> = _confirmMobileDataScan.asStateFlow()
+
+        /** Local scan + forced Freebox scan (the latter is a no-op when not paired / no folder). */
+        fun scanLibrary() {
+                viewModelScope.launch { scanner.scan() }
+                viewModelScope.launch {
+                        val trigger = freeboxSync.maybeScan(force = true)
+                        // Only worth asking when the box answers remotely (or the LAN is metered):
+                        // an unreachable box would refuse the scan anyway.
+                        val reach = reachability.state.value
+                        if (trigger == ScanTrigger.SKIPPED_NOT_LAN &&
+                                        (reach == FreeboxReachability.Reach.REMOTE ||
+                                                reach == FreeboxReachability.Reach.LAN)
+                        ) {
+                                _confirmMobileDataScan.value = true
+                        }
+                }
+        }
+
+        /** "Scan anyway": Freebox scan allowed over the remote access / mobile data. */
+        fun confirmMobileDataScan() {
+                _confirmMobileDataScan.value = false
+                viewModelScope.launch { freeboxSync.maybeScan(force = true, allowRemote = true) }
+        }
+
+        fun dismissMobileDataScan() {
+                _confirmMobileDataScan.value = false
+        }
 
         // ---- Freebox ----
 
@@ -156,7 +196,7 @@ constructor(
         val libraryMode: StateFlow<LibraryMode> =
                 libraryModeRepo.mode.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LibraryMode.LOCAL)
 
-        /** Bytes of cached Freebox covers. TODO(lot 3): real size once FreeboxArtCache is bound. */
+        /** Bytes of cached Freebox covers. */
         val freeboxArtCacheSize: StateFlow<Long> =
                 artCache.sizeBytes.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
 
@@ -172,6 +212,20 @@ constructor(
         fun setLibraryMode(mode: LibraryMode) = viewModelScope.launch { libraryModeRepo.setMode(mode) }
 
         fun clearFreeboxArtCache() = viewModelScope.launch { artCache.clear() }
+
+        /** Songs indexed from the Freebox music folder. */
+        val freeboxIndexedCount: StateFlow<Int> =
+                songDao.countBySourceFlow(SOURCE_FREEBOX)
+                        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+        /** Wall-clock ms of the last complete Freebox scan; 0 = never. */
+        val freeboxLastScanAt: StateFlow<Long> =
+                prefs.freeboxLastScanAt.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
+
+        val freeboxScanProgress: StateFlow<String?> = freeboxSync.progressMessage
+
+        /** Why the last Freebox scan did not complete; null after a complete one. */
+        val freeboxScanError: StateFlow<String?> = freeboxSync.lastError
 
         private val _freeboxPairing = MutableStateFlow<FreeboxPairingState>(FreeboxPairingState.Idle)
         val freeboxPairing: StateFlow<FreeboxPairingState> = _freeboxPairing.asStateFlow()

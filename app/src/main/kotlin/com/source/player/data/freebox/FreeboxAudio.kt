@@ -2,7 +2,7 @@ package com.source.player.data.freebox
 
 /**
  * File-type filters for the Freebox music folder, shared by the library scanner and
- * the live browser. AUDIO_EXTENSIONS matches `FreeboxViewModel.AUDIO_EXTENSIONS`.
+ * the live browser (`FreeboxViewModel.AUDIO_EXTENSIONS` points here).
  */
 object FreeboxAudio {
     val AUDIO_EXTENSIONS: Set<String> =
