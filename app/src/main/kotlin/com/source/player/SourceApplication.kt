@@ -2,6 +2,7 @@ package com.source.player
 
 import android.app.Application
 import android.util.Log
+import com.source.player.data.freebox.FreeboxReachability
 import com.source.player.data.scanner.MediaStoreWatcher
 import dagger.hilt.android.HiltAndroidApp
 import java.io.File
@@ -17,10 +18,14 @@ class SourceApplication : Application() {
          */
         @Inject lateinit var mediaStoreWatcher: MediaStoreWatcher
 
+        /** Tracks whether the Freebox is reachable (LAN / remote) across network changes. */
+        @Inject lateinit var freeboxReachability: FreeboxReachability
+
         override fun onCreate() {
                 super.onCreate()
                 installCrashLogger()
                 mediaStoreWatcher.start()
+                freeboxReachability.start()
         }
 
         /**

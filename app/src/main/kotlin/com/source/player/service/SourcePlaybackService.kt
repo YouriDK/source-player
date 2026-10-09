@@ -18,6 +18,7 @@ import com.google.android.gms.cast.framework.CastContext
 import com.source.player.MainActivity
 import com.source.player.data.freebox.FreeboxClient
 import com.source.player.data.freebox.FreeboxPaths
+import com.source.player.data.freebox.FreeboxReachability
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
@@ -43,6 +44,7 @@ class SourcePlaybackService : MediaSessionService() {
     @Inject lateinit var localAudioHttpServer: LocalAudioHttpServer
     @Inject lateinit var sonosManager: SonosManager
     @Inject lateinit var freeboxClient: FreeboxClient
+    @Inject lateinit var freeboxReachability: FreeboxReachability
 
     private val volumeScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -70,7 +72,7 @@ class SourcePlaybackService : MediaSessionService() {
 
         // fbx:// tracks (Freebox disk) go through FreeboxDataSource; everything else
         // (file://, content://, http…) keeps the default data source.
-        val dataSourceFactory = SchemeDispatchingDataSource.Factory(this, freeboxClient)
+        val dataSourceFactory = SchemeDispatchingDataSource.Factory(this, freeboxClient, freeboxReachability)
 
         localPlayer =
                 ExoPlayer.Builder(this)
