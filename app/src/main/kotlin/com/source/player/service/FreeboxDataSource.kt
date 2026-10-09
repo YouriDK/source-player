@@ -15,6 +15,7 @@ import androidx.media3.datasource.TransferListener
 import com.source.player.data.freebox.FreeboxAuthException
 import com.source.player.data.freebox.FreeboxClient
 import com.source.player.data.freebox.FreeboxPaths
+import com.source.player.data.freebox.FreeboxReachability
 import com.source.player.data.freebox.StreamingAccess
 import java.io.FileNotFoundException
 import java.io.IOException
@@ -28,15 +29,20 @@ import kotlinx.coroutines.runBlocking
  * `X-Fbx-App-Auth` session header, then streamed by a plain [DefaultHttpDataSource]
  * (Range requests, keep-alive). A 403 means the session expired: it is dropped,
  * re-opened once and the request retried. Runs on ExoPlayer's loader thread, so the
- * blocking session lookup is fine here.
+ * blocking session lookup is fine here. Connection failures are reported to
+ * [FreeboxReachability] so the app learns quickly that the box went away.
  */
 @OptIn(UnstableApi::class)
 class FreeboxDataSource(
         private val client: FreeboxClient,
+        private val reachability: FreeboxReachability,
         private val delegate: HttpDataSource,
 ) : DataSource {
 
-    class Factory(private val client: FreeboxClient) : DataSource.Factory {
+    class Factory(
+            private val client: FreeboxClient,
+            private val reachability: FreeboxReachability,
+    ) : DataSource.Factory {
         private val httpFactory =
                 DefaultHttpDataSource.Factory()
                         .setAllowCrossProtocolRedirects(true)
@@ -45,7 +51,7 @@ class FreeboxDataSource(
                         .setReadTimeoutMs(READ_TIMEOUT_MS)
 
         override fun createDataSource(): DataSource =
-                FreeboxDataSource(client, httpFactory.createDataSource())
+                FreeboxDataSource(client, reachability, httpFactory.createDataSource())
     }
 
     /** The original fbx:// uri, reported by [getUri] (never leaks the /dl/ url). */
@@ -60,17 +66,22 @@ class FreeboxDataSource(
         val fbxUrl = dataSpec.uri.toString()
         fbxUri = dataSpec.uri
         return try {
-            openWith(dataSpec, fbxUrl, resolveAccess())
-        } catch (e: HttpDataSource.InvalidResponseCodeException) {
-            if (e.responseCode != 403) throw mapHttpError(e)
-            // Session expired / revoked on the box: log in again and retry once.
-            delegate.close()
-            runBlockingIo { client.dropSession() }
             try {
                 openWith(dataSpec, fbxUrl, resolveAccess())
-            } catch (retry: HttpDataSource.InvalidResponseCodeException) {
-                throw mapHttpError(retry)
+            } catch (e: HttpDataSource.InvalidResponseCodeException) {
+                if (e.responseCode != 403) throw mapHttpError(e)
+                // Session expired / revoked on the box: log in again and retry once.
+                delegate.close()
+                runBlockingIo { client.dropSession() }
+                try {
+                    openWith(dataSpec, fbxUrl, resolveAccess())
+                } catch (retry: HttpDataSource.InvalidResponseCodeException) {
+                    throw mapHttpError(retry)
+                }
             }
+        } catch (e: HttpDataSource.HttpDataSourceException) {
+            reportIfNetworkFailure(e)
+            throw e
         }
     }
 
@@ -95,8 +106,11 @@ class FreeboxDataSource(
                 throw DataSourceException(e, PlaybackException.ERROR_CODE_IO_NO_PERMISSION)
             } catch (e: FileNotFoundException) {
                 throw DataSourceException(e, PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND)
+            } catch (e: InterruptedIOException) {
+                throw e // load cancelled (track skipped…), not a connectivity problem
             } catch (e: IOException) {
                 // FreeboxUnreachableException and every other transport failure.
+                reachability.reportFailure()
                 throw DataSourceException(e, PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED)
             }
 
@@ -106,6 +120,16 @@ class FreeboxDataSource(
                 404 -> DataSourceException(e, PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND)
                 else -> e
             }
+
+    /** Reports transport failures (connect / timeout) of the /dl/ request, then rethrows. */
+    private fun reportIfNetworkFailure(e: HttpDataSource.HttpDataSourceException) {
+        if (e is HttpDataSource.InvalidResponseCodeException) return
+        if (e.reason == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+                        e.reason == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT
+        ) {
+            reachability.reportFailure()
+        }
+    }
 
     /** runBlocking on the loader thread; a cancelled load interrupts it. */
     private fun <T> runBlockingIo(block: suspend () -> T): T =
@@ -118,7 +142,12 @@ class FreeboxDataSource(
 
     @Throws(IOException::class)
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
-            delegate.read(buffer, offset, length)
+            try {
+                delegate.read(buffer, offset, length)
+            } catch (e: HttpDataSource.HttpDataSourceException) {
+                reportIfNetworkFailure(e)
+                throw e
+            }
 
     override fun getUri(): Uri? = if (delegate.uri != null) fbxUri else null
 
@@ -152,8 +181,11 @@ private constructor(
             private val freeboxFactory: DataSource.Factory,
             private val defaultFactory: DataSource.Factory,
     ) : DataSource.Factory {
-        constructor(context: Context, client: FreeboxClient) :
-                this(FreeboxDataSource.Factory(client), DefaultDataSource.Factory(context))
+        constructor(
+                context: Context,
+                client: FreeboxClient,
+                reachability: FreeboxReachability,
+        ) : this(FreeboxDataSource.Factory(client, reachability), DefaultDataSource.Factory(context))
 
         override fun createDataSource(): DataSource =
                 SchemeDispatchingDataSource(freeboxFactory, defaultFactory)
