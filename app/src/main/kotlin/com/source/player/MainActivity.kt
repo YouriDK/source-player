@@ -11,6 +11,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
@@ -22,6 +23,7 @@ import com.source.player.data.scanner.MediaScanner
 import com.source.player.ui.navigation.SourceNavHost
 import com.source.player.ui.theme.SourceTheme
 import com.source.player.ui.viewmodel.SettingsViewModel
+import com.source.player.ui.viewmodel.StartDestinationViewModel
 import dagger.hilt.android.AndroidEntryPoint
 import java.io.File
 import javax.inject.Inject
@@ -32,6 +34,8 @@ class MainActivity : ComponentActivity() {
 
   @Inject lateinit var scanner: MediaScanner
   @Inject lateinit var freeboxSync: FreeboxLibrarySync
+
+  private val startDestination: StartDestinationViewModel by viewModels()
 
   /**
    * Single launcher for all runtime permissions. The launcher is registered unconditionally
@@ -45,7 +49,9 @@ class MainActivity : ComponentActivity() {
           }
 
   override fun onCreate(savedInstanceState: Bundle?) {
-    installSplashScreen()
+    // The splash stays up until the start tab is known (Player when a queue was
+    // restored, Library otherwise), so the first frame is already the right tab.
+    installSplashScreen().setKeepOnScreenCondition { startDestination.startRoute.value == null }
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
 
@@ -56,7 +62,10 @@ class MainActivity : ComponentActivity() {
       val settingsVm: SettingsViewModel = hiltViewModel()
       val isDark by settingsVm.isDarkMode.collectAsState()
       val accentHue by settingsVm.accentHue.collectAsState()
-      SourceTheme(darkTheme = isDark, accentHue = accentHue) { SourceNavHost() }
+      val startRoute by startDestination.startRoute.collectAsState()
+      SourceTheme(darkTheme = isDark, accentHue = accentHue) {
+        startRoute?.let { SourceNavHost(startRoute = it) }
+      }
     }
   }
 

@@ -1,6 +1,7 @@
 package com.source.player.ui.screens
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
@@ -28,6 +29,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,6 +56,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
+import com.source.player.ui.components.BrowserEmptyState
 import com.source.player.ui.components.MonoSize
 import com.source.player.ui.components.MonoText
 import com.source.player.ui.components.SectionKicker
@@ -66,13 +69,46 @@ import com.source.player.ui.viewmodel.PlayerViewModel
 import kotlin.math.abs
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
+/**
+ * Content of the Player tab. The tab bar stays below it, so it lays out in the space
+ * the Scaffold leaves (no system-bar padding of its own).
+ *
+ * @param onClose back to the tab the player was opened from; null when there is none
+ * (app started on the player), and the close button is then hidden.
+ * @param onBrowseFolders selects the Folders tab (empty state link).
+ */
 @Composable
 fun PlayerScreen(
         navController: NavController,
+        onClose: (() -> Unit)?,
+        onBrowseFolders: () -> Unit,
         vm: PlayerViewModel = hiltViewModel(),
+) {
+    val song by vm.currentSong.collectAsStateWithLifecycle()
+    // System Back does what the close button does.
+    BackHandler(enabled = onClose != null) { onClose?.invoke() }
+
+    if (song == null) {
+        val hasTracks by vm.hasTracks.collectAsStateWithLifecycle()
+        PlayerEmptyState(
+                canShuffle = hasTracks,
+                onShuffleAll = { vm.shuffleAll() },
+                onBrowseFolders = onBrowseFolders,
+        )
+        return
+    }
+    NowPlaying(navController, onClose, vm)
+}
+
+@Composable
+private fun NowPlaying(
+        navController: NavController,
+        onClose: (() -> Unit)?,
+        vm: PlayerViewModel,
 ) {
     val song by vm.currentSong.collectAsStateWithLifecycle()
     val isPlaying by vm.isPlaying.collectAsStateWithLifecycle()
@@ -83,6 +119,7 @@ fun PlayerScreen(
     val repeatMode by vm.repeatMode.collectAsStateWithLifecycle()
     val shuffleEnabled by vm.shuffleEnabled.collectAsStateWithLifecycle()
     val queueIndex by vm.queueIndex.collectAsStateWithLifecycle()
+    val queueSize by remember { vm.queueItems.map { it.size } }.collectAsStateWithLifecycle(0)
     val songId by vm.currentSongId.collectAsStateWithLifecycle()
     val playbackError by vm.playbackError.collectAsStateWithLifecycle()
     val sonosActive by vm.sonosActive.collectAsStateWithLifecycle()
@@ -123,18 +160,20 @@ fun PlayerScreen(
     // so a drag can reach the edge of visibility but never overshoot past it.
     val exitTravelPx = with(density) { SWIPE_EXIT_TRAVEL.toPx() }
 
-    // ── Pull-down to collapse ─────────────────────────────────────────────
-    // Dragging down shrinks and lowers the whole screen towards the mini player,
-    // and releasing past the threshold pops back to it. Sharing one gesture
-    // detector with the track swipe (rather than stacking a second pointerInput)
-    // is what keeps the two from both claiming a diagonal drag.
-    val sheetOffset = remember { Animatable(0f) }
-    val dismissDistancePx = with(density) { PULL_DISMISS_DISTANCE.toPx() }
-    val dismissMaxPx = with(density) { PULL_MAX_TRAVEL.toPx() }
+    // ── Pull up for the queue ─────────────────────────────────────────────
+    // Dragging up anywhere on the player (or on the handle at its foot) lifts the
+    // screen a little and, past the threshold, opens the queue sheet. Sharing one
+    // gesture detector with the track swipe (rather than stacking a second
+    // pointerInput) is what keeps the two from both claiming a diagonal drag.
+    val liftOffset = remember { Animatable(0f) }
+    val openDistancePx = with(density) { PULL_OPEN_DISTANCE.toPx() }
+    val liftMaxPx = with(density) { PULL_MAX_TRAVEL.toPx() }
     val pullFlickDistancePx = with(density) { PULL_FLICK_MIN_DISTANCE.toPx() }
     val pullFlickVelocityPx = with(density) { PULL_FLICK_VELOCITY.toPx() }
     val axisLockPx = with(density) { AXIS_LOCK_DISTANCE.toPx() }
-    var dismissing by remember { mutableStateOf(false) }
+    var showQueue by rememberSaveable { mutableStateOf(false) }
+
+    if (showQueue) QueueSheet(onDismiss = { showQueue = false }, vm = vm)
 
     Box(modifier = Modifier.fillMaxSize().background(colors.bg)) {
         // Ambient gradient — two soft radial glows behind everything.
@@ -143,17 +182,10 @@ fun PlayerScreen(
         Column(
                 modifier =
                         Modifier.fillMaxSize()
-                                .systemBarsPadding()
                                 .graphicsLayer {
-                                    // Whole-screen pull-down: lowers and shrinks
-                                    // towards the mini player it collapses into.
-                                    val pulled = sheetOffset.value
-                                    val progress = (pulled / dismissDistancePx).coerceIn(0f, 1f)
-                                    translationY = pulled
-                                    val shrink = 1f - 0.06f * progress
-                                    scaleX = shrink
-                                    scaleY = shrink
-                                    alpha = 1f - 0.25f * progress
+                                    // Pull-up feedback: the screen follows the finger
+                                    // at a third of its travel, as if held back.
+                                    translationY = liftOffset.value / 3f
                                 }
                                 .pointerInput(Unit) {
                                     val velocity = VelocityTracker()
@@ -171,7 +203,7 @@ fun PlayerScreen(
                                                 axis = DragAxis.UNDECIDED
                                                 velocity.resetTracking()
                                                 scope.launch { heroOffset.stop() }
-                                                scope.launch { sheetOffset.stop() }
+                                                scope.launch { liftOffset.stop() }
                                             },
                                             onDragCancel = {
                                                 axis = DragAxis.UNDECIDED
@@ -179,34 +211,22 @@ fun PlayerScreen(
                                                     heroOffset.animateTo(0f, SWIPE_SPRING)
                                                 }
                                                 scope.launch {
-                                                    sheetOffset.animateTo(0f, SWIPE_SPRING)
+                                                    liftOffset.animateTo(0f, SWIPE_SPRING)
                                                 }
                                             },
                                             onDragEnd = {
                                                 val v = velocity.calculateVelocity()
                                                 when (axis) {
                                                     DragAxis.VERTICAL -> {
-                                                        val collapse =
-                                                                travelledY >= dismissDistancePx ||
-                                                                        (v.y >=
+                                                        val open =
+                                                                -travelledY >= openDistancePx ||
+                                                                        (-v.y >=
                                                                                 pullFlickVelocityPx &&
-                                                                                travelledY >=
+                                                                                -travelledY >=
                                                                                         pullFlickDistancePx)
-                                                        if (collapse) {
-                                                            // Leave the layer where the finger
-                                                            // left it — the route's slide-down
-                                                            // exit continues from here, so the
-                                                            // gesture and the transition read
-                                                            // as one movement.
-                                                            dismissing = true
-                                                            navController.popBackStack()
-                                                        } else {
-                                                            scope.launch {
-                                                                sheetOffset.animateTo(
-                                                                        0f,
-                                                                        SWIPE_SPRING
-                                                                )
-                                                            }
+                                                        if (open) showQueue = true
+                                                        scope.launch {
+                                                            liftOffset.animateTo(0f, SWIPE_SPRING)
                                                         }
                                                     }
                                                     else -> {
@@ -246,7 +266,6 @@ fun PlayerScreen(
                                                 axis = DragAxis.UNDECIDED
                                             },
                                     ) { change, drag ->
-                                        if (dismissing) return@detectDragGestures
                                         change.consume()
                                         velocity.addPosition(change.uptimeMillis, change.position)
                                         travelledX += drag.x
@@ -260,8 +279,8 @@ fun PlayerScreen(
                                                         abs(travelledX) >= axisLockPx &&
                                                                 abs(travelledX) > abs(travelledY) ->
                                                                 DragAxis.HORIZONTAL
-                                                        travelledY >= axisLockPx &&
-                                                                travelledY > abs(travelledX) ->
+                                                        -travelledY >= axisLockPx &&
+                                                                -travelledY > abs(travelledX) ->
                                                                 DragAxis.VERTICAL
                                                         else -> DragAxis.UNDECIDED
                                                     }
@@ -280,11 +299,9 @@ fun PlayerScreen(
                                                 scope.launch { heroOffset.snapTo(travelledX) }
                                             }
                                             DragAxis.VERTICAL -> {
-                                                // Downwards only — dragging up has nothing to
-                                                // collapse into.
-                                                travelledY =
-                                                        travelledY.coerceIn(0f, dismissMaxPx)
-                                                scope.launch { sheetOffset.snapTo(travelledY) }
+                                                // Upwards only — the queue comes from below.
+                                                travelledY = travelledY.coerceIn(-liftMaxPx, 0f)
+                                                scope.launch { liftOffset.snapTo(travelledY) }
                                             }
                                             DragAxis.UNDECIDED -> Unit
                                         }
@@ -298,19 +315,24 @@ fun PlayerScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                IconButton(onClick = { navController.popBackStack() }) {
-                    Icon(
-                            HugeIcons.ChevronDown,
-                            contentDescription = "Close",
-                            tint = colors.text,
-                    )
+                if (onClose != null) {
+                    IconButton(onClick = onClose) {
+                        Icon(
+                                HugeIcons.ChevronDown,
+                                contentDescription = "Close",
+                                tint = colors.text,
+                        )
+                    }
+                } else {
+                    // Keeps the side label centred.
+                    Spacer(Modifier.size(48.dp))
                 }
                 MonoText(
                         text = sideLabel(queueIndex),
                         color = colors.textDim,
                         size = MonoSize.S95,
                 )
-                IconButton(onClick = { navController.navigate(Routes.QUEUE) }) {
+                IconButton(onClick = { showQueue = true }) {
                     Icon(
                             HugeIcons.Playlist,
                             contentDescription = "Queue",
@@ -320,8 +342,14 @@ fun PlayerScreen(
             }
 
             // ── Hero area ────────────────────────────────────────────
+            BoxWithConstraints(
+                    modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 18.dp),
+                    contentAlignment = Alignment.Center,
+            ) {
+            // Cover at 58% of the width, smaller when the height left between the
+            // top bar and the transport (tab bar below) can't also hold the text.
+            val artSize = minOf(maxWidth * 0.58f, maxHeight - HERO_TEXT_RESERVE).coerceAtLeast(96.dp)
             Column(
-                    modifier = Modifier.weight(1f).padding(horizontal = 18.dp),
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -368,7 +396,7 @@ fun PlayerScreen(
                                             .togetherWith(fadeOut(tween(110)))
                         },
                         label = "artwork",
-                        modifier = Modifier.fillMaxWidth(0.58f).aspectRatio(1f),
+                        modifier = Modifier.size(artSize),
                 ) { artwork ->
                     AsyncImage(
                             model = artwork,
@@ -450,6 +478,7 @@ fun PlayerScreen(
                     )
                 }
                 }
+            }
             }
 
             // ── Scrubber ─────────────────────────────────────────────
@@ -607,7 +636,69 @@ fun PlayerScreen(
                 )
             }
 
-            Spacer(Modifier.height(12.dp))
+            // ── Queue handle ─────────────────────────────────────────
+            QueueHandle(
+                    position = queueIndex + 1,
+                    size = queueSize,
+                    onOpen = { showQueue = true },
+            )
+        }
+    }
+}
+
+/** Grip at the foot of the player: tap it or pull it up to open the queue sheet. */
+@Composable
+private fun QueueHandle(position: Int, size: Int, onOpen: () -> Unit) {
+    val colors = MaterialTheme.sourceColors
+    Column(
+            modifier =
+                    Modifier.fillMaxWidth()
+                            .clickable(onClick = onOpen)
+                            .padding(top = 10.dp, bottom = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+                Modifier.size(width = 36.dp, height = 4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(colors.textMute.copy(alpha = 0.6f))
+        )
+        Spacer(Modifier.height(6.dp))
+        MonoText(
+                text = if (size > 0) "Queue \u00B7 ${position.coerceIn(1, size)} / $size" else "Queue",
+                color = colors.textDim,
+                size = MonoSize.S10,
+        )
+    }
+}
+
+/** Nothing loaded: shuffle the active source or go pick something in Folders. */
+@Composable
+private fun PlayerEmptyState(
+        canShuffle: Boolean,
+        onShuffleAll: () -> Unit,
+        onBrowseFolders: () -> Unit,
+) {
+    val colors = MaterialTheme.sourceColors
+    val text = MaterialTheme.sourceText
+    Box(Modifier.fillMaxSize().background(colors.bg)) {
+        AmbientGlow(accent = colors.accent)
+        Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            BrowserEmptyState(
+                    icon = HugeIcons.MusicNote,
+                    title = "Nothing playing",
+                    body =
+                            if (canShuffle) "Shuffle the whole library, or pick something in Folders."
+                            else "Pick something to play in Folders.",
+                    action = if (canShuffle) "Shuffle all" else null,
+                    onAction = onShuffleAll,
+            )
+            TextButton(onClick = onBrowseFolders) {
+                Text("Browse folders", style = text.pillLabel12, color = colors.accent)
+            }
         }
     }
 }
@@ -908,19 +999,24 @@ private val SWIPE_FLICK_MIN_DISTANCE = 28.dp
 private val SWIPE_FLICK_VELOCITY = 450.dp // per second
 private val SWIPE_EXIT_TRAVEL = 190.dp
 
-// ── Pull-down tuning ──────────────────────────────────────────────────────
+// ── Pull-up tuning ────────────────────────────────────────────────────────
 // The distance a drag must clear before it is treated as one axis rather than
-// the other, then the pull-down's own commit threshold and travel clamp.
+// the other, then the pull-up's own open threshold and travel clamp.
 private val AXIS_LOCK_DISTANCE = 10.dp
-private val PULL_DISMISS_DISTANCE = 130.dp
-private val PULL_MAX_TRAVEL = 260.dp
+private val PULL_OPEN_DISTANCE = 90.dp
+private val PULL_MAX_TRAVEL = 240.dp
 
-// The pull-down deliberately does NOT reuse the track swipe's flick bar. Losing
-// the screen costs more than skipping a track, so a flick has to be both longer
-// and faster before it counts — at the swipe's 28dp/450dp-per-second a brisk
-// thumb movement was enough to throw the player away by accident.
+// The pull-up deliberately does NOT reuse the track swipe's flick bar: a flick
+// has to be both longer and faster before it counts, so a brisk thumb movement
+// on the cover doesn't throw the queue over the player by accident.
 private val PULL_FLICK_MIN_DISTANCE = 56.dp
 private val PULL_FLICK_VELOCITY = 900.dp // per second
+
+/**
+ * Height the hero keeps for what sits under the cover: kicker, 2-line auto-fit title,
+ * artist, album and their spacing. The cover shrinks rather than push them out.
+ */
+private val HERO_TEXT_RESERVE = 250.dp
 
 /** Spring back to centre when a gesture didn't clear the threshold. */
 private val SWIPE_SPRING =
