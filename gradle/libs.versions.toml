@@ -25,6 +25,7 @@ mediarouter             = "1.7.0"
 play-services-cast      = "21.5.0"
 jaudiotagger            = "3.0.1"
 security-crypto         = "1.1.0-alpha06"
+junit                   = "4.13.2"
 
 [libraries]
 # Core
@@ -102,6 +103,9 @@ coroutines-android          = { group = "org.jetbrains.kotlinx",            name
 # Performance
 profileinstaller            = { group = "androidx.profileinstaller",        name = "profileinstaller",                 version.ref = "profileinstaller" }
 leakcanary                  = { group = "com.squareup.leakcanary",          name = "leakcanary-android",               version.ref = "leakcanary" }
+
+# Tests
+junit                       = { group = "junit",                            name = "junit",                            version.ref = "junit" }
 
 [plugins]
 android-application         = { id = "com.android.application",             version.ref = "agp" }
