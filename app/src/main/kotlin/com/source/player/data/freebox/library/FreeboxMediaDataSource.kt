@@ -34,6 +34,8 @@ class FreeboxMediaDataSource(
     private val url: String,
     private val fileSize: Long,
     private val maxBytes: Long = MAX_BYTES_PER_FILE,
+    /** Passed to every [FreeboxClient.readRange]: true refuses reads unless on the LAN. */
+    private val requireLan: Boolean = true,
     /** Polled before each network read; true makes the read fail fast. */
     private val shouldAbort: () -> Boolean = { false },
 ) : MediaDataSource() {
@@ -121,7 +123,7 @@ class FreeboxMediaDataSource(
             if (bytesRead + length > maxBytes) {
                 throw FreeboxReadCapException("Read cap of $maxBytes bytes reached ($url)")
             }
-            val bytes = runBlocking { client.readRange(url, offset, length, requireLan = true) }
+            val bytes = runBlocking { client.readRange(url, offset, length, requireLan = requireLan) }
             bytesRead += bytes.size
             return bytes
         } catch (e: IOException) {

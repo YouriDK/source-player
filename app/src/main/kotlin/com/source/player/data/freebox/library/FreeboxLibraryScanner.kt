@@ -93,7 +93,8 @@ data class ScanOutcome(
  *   recomputed from the DB), so a scan killed midway resumes without re-reading them.
  * - A pass that hit unreadable sub-folders, or lost the box, is partial: rows are
  *   upserted but no song is deleted, so a flaky folder never wipes part of the library.
- * - Every list / range read requires the LAN (no scan over mobile data).
+ * - Every list / range read requires the LAN (no scan over mobile data), unless the
+ *   caller passes `requireLan = false` (manual scan confirmed by the user over 4G).
  *
  * Callers own the trigger policy (network, staleness, timestamps): [ScanOutcome.status]
  * COMPLETE is the signal that a full pass succeeded.
@@ -114,6 +115,7 @@ class FreeboxLibraryScanner @Inject constructor(
     private val pendingLock = Any()
     private var pending: CompletableDeferred<ScanOutcome>? = null
     private var pendingRoot: FreeboxFolder? = null
+    private var pendingRequireLan = true
 
     /** Serializes DB writes of a pass with [purge]. */
     private val writeMutex = Mutex()
@@ -136,25 +138,31 @@ class FreeboxLibraryScanner @Inject constructor(
      * Scans [root] (the music folder). Concurrent calls are coalesced: a call made while
      * a pass is running waits for one extra pass (on the latest requested root) run right
      * after it, and returns that pass's outcome.
+     *
+     * [requireLan] = true (default) makes every list / range read fail unless the box is
+     * reached over the LAN; false lets a pass run over the remote access (mobile data).
+     * A queued pass uses the [requireLan] of the latest caller.
      */
-    suspend fun scan(root: FreeboxFolder): ScanOutcome =
+    suspend fun scan(root: FreeboxFolder, requireLan: Boolean = true): ScanOutcome =
         withContext(Dispatchers.IO) {
             val waiter = synchronized(pendingLock) {
                 if (scanMutex.tryLock()) {
                     null
                 } else {
                     pendingRoot = root
+                    pendingRequireLan = requireLan
                     pending ?: CompletableDeferred<ScanOutcome>().also { pending = it }
                 }
             }
             if (waiter != null) return@withContext waiter.await()
 
             var currentRoot = root
+            var currentRequireLan = requireLan
             var currentWaiter: CompletableDeferred<ScanOutcome>? = null
             var holdsLock = true
             try {
                 while (true) {
-                    val outcome = runScanPass(currentRoot)
+                    val outcome = runScanPass(currentRoot, currentRequireLan)
                     currentWaiter?.complete(outcome)
                     currentWaiter = null
                     val next = synchronized(pendingLock) {
@@ -167,12 +175,13 @@ class FreeboxLibraryScanner @Inject constructor(
                             null
                         } else {
                             pending = null
-                            p to pendingRoot!!
+                            Triple(p, pendingRoot!!, pendingRequireLan)
                         }
                     }
                     if (next == null) return@withContext outcome
                     currentWaiter = next.first
                     currentRoot = next.second
+                    currentRequireLan = next.third
                 }
                 @Suppress("UNREACHABLE_CODE")
                 error("unreachable")
@@ -215,7 +224,7 @@ class FreeboxLibraryScanner @Inject constructor(
                 albumDao.deleteBySource(SOURCE_FREEBOX)
                 artistDao.deleteBySource(SOURCE_FREEBOX)
                 genreDao.deleteBySource(SOURCE_FREEBOX)
-                artCache.clear()
+                artCache.deleteAll()
             }
             _lastError.value = null
             if (!scanMutex.isLocked) setProgress(ScanProgress())
@@ -231,7 +240,7 @@ class FreeboxLibraryScanner @Inject constructor(
         class BoxLost(val cause: Throwable) : Stop()
     }
 
-    private class PassState(val generation: Int) {
+    private class PassState(val generation: Int, val requireLan: Boolean) {
         val stop = AtomicReference<Stop?>(null)
         val bytesRead = AtomicLong(0)
         val extracted = AtomicInteger(0)
@@ -246,10 +255,10 @@ class FreeboxLibraryScanner @Inject constructor(
         fun stopped(): Boolean = stop.get() != null
     }
 
-    private suspend fun runScanPass(root: FreeboxFolder): ScanOutcome {
+    private suspend fun runScanPass(root: FreeboxFolder, requireLan: Boolean): ScanOutcome {
         cancelRequested = false
         val startedAt = System.currentTimeMillis()
-        val state = PassState(clearGeneration)
+        val state = PassState(clearGeneration, requireLan)
         setProgress(ScanProgress(isScanning = true))
         try {
             // 1. Walk — a failure at the root aborts with the DB untouched
@@ -419,7 +428,7 @@ class FreeboxLibraryScanner @Inject constructor(
             val (dirUrl, segments) = queue.removeFirst()
             if (!visited.add(dirUrl)) continue
             val entries = try {
-                client.list(dirUrl, requireLan = true)
+                client.list(dirUrl, requireLan = state.requireLan)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -580,6 +589,7 @@ class FreeboxLibraryScanner @Inject constructor(
             client = client,
             url = file.url,
             fileSize = file.size,
+            requireLan = state.requireLan,
             shouldAbort = { cancelRequested || state.stopped() },
         )
         state.extracted.incrementAndGet()
@@ -790,7 +800,7 @@ class FreeboxLibraryScanner @Inject constructor(
             return false
         }
         return try {
-            val bytes = client.readRange(cover.url, 0, cover.size.toInt(), requireLan = true)
+            val bytes = client.readRange(cover.url, 0, cover.size.toInt(), requireLan = state.requireLan)
             state.bytesRead.addAndGet(bytes.size.toLong())
             if (bytes.size.toLong() != cover.size) {
                 Log.w(TAG, "Short read on cover ${cover.url} (${bytes.size}/${cover.size})")
