@@ -50,6 +50,8 @@ class AppPreferences @Inject constructor(@ApplicationContext private val ctx: Co
     val FBX_BOX_NAME = stringPreferencesKey("fbx_box_name")
     val FBX_START_FOLDER_B64 = stringPreferencesKey("fbx_start_folder_b64")
     val FBX_START_FOLDER_DISPLAY = stringPreferencesKey("fbx_start_folder_display")
+    // Library mode (Local / Stream) — see LibraryMode
+    val LIBRARY_MODE = stringPreferencesKey("library_mode")
   }
 
   val isDarkMode: Flow<Boolean> = ctx.dataStore.data.map { it[Keys.DARK_MODE] ?: true }
@@ -81,6 +83,13 @@ class AppPreferences @Inject constructor(@ApplicationContext private val ctx: Co
   val fontFamily: Flow<String> =
           ctx.dataStore.data.map { it[Keys.FONT_FAMILY] ?: "PlusJakartaSans" }
   val sonosActiveId: Flow<String?> = ctx.dataStore.data.map { it[Keys.SONOS_ACTIVE_ID] }
+
+  /** Which library the app shows: on-device files (default) or the Freebox music folder. */
+  val libraryMode: Flow<LibraryMode> =
+          ctx.dataStore.data.map { LibraryMode.fromKey(it[Keys.LIBRARY_MODE]) }.distinctUntilChanged()
+
+  suspend fun setLibraryMode(mode: LibraryMode) =
+          ctx.dataStore.edit { it[Keys.LIBRARY_MODE] = mode.name }
 
   /**
    * Non-secret Freebox connection metadata (refreshed by every LAN discovery) and
@@ -135,9 +144,14 @@ class AppPreferences @Inject constructor(@ApplicationContext private val ctx: Co
             }
           }
 
-  /** Forget every Freebox setting: endpoint metadata, box name, start folder. */
+  /**
+   * Forget every Freebox setting: endpoint metadata, box name, start folder. Stream mode
+   * makes no sense without a paired box, so the library mode falls back to Local in the
+   * same edit (unpairing while in Stream brings the local library back).
+   */
   suspend fun clearFreeboxSettings() =
           ctx.dataStore.edit {
+            it.remove(Keys.LIBRARY_MODE)
             it.remove(Keys.FBX_API_DOMAIN)
             it.remove(Keys.FBX_HTTPS_PORT)
             it.remove(Keys.FBX_API_BASE_URL)

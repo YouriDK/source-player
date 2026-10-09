@@ -211,12 +211,16 @@ constructor(
         }
     }
 
+    // This browser only exists in Local mode (Stream shows the Freebox music folder), so
+    // its "add folder to playlist" sheet deals with Local playlists only.
     val playlists =
-            playlistDao.getAllFlow().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+            playlistDao
+                    .getAllBySourceFlow(SOURCE_LOCAL)
+                    .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     fun createPlaylist(name: String) {
         if (name.isBlank()) return
-        viewModelScope.launch { playlistDao.insert(PlaylistEntity(name = name)) }
+        viewModelScope.launch { playlistDao.insert(PlaylistEntity(name = name, source = SOURCE_LOCAL)) }
     }
 
     fun addFolderToPlaylist(playlistId: Long) {
