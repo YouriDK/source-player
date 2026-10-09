@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import com.source.player.data.freebox.FreeboxAudio
 import com.source.player.data.freebox.FreeboxAuthException
 import com.source.player.data.freebox.FreeboxClient
 import com.source.player.data.freebox.FreeboxFolder
@@ -434,11 +435,7 @@ constructor(
         /** Folder names offered as the music folder when found at the root of a disk. */
         private val SUGGESTED_NAMES = setOf("music", "musique")
 
-        val AUDIO_EXTENSIONS =
-                setOf(
-                        "mp3", "flac", "m4a", "aac", "ogg", "oga", "opus", "wav", "wma", "aiff",
-                        "aif",
-                )
+        val AUDIO_EXTENSIONS = FreeboxAudio.AUDIO_EXTENSIONS
     }
 }
 

@@ -1,18 +1,32 @@
 package com.source.player.data.freebox.library
 
 import android.content.Context
+import com.source.player.data.freebox.FreeboxArtCacheInfo
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.withContext
 
 /**
  * On-disk album art for Freebox albums: `filesDir/freebox_art/<albumId>.jpg`. Bytes are
  * stored as fetched (JPEG, PNG or WebP) — Coil sniffs the real format, the extension is
- * cosmetic. All methods do blocking file IO: call them off the main thread.
+ * cosmetic. All non-suspend methods do blocking file IO: call them off the main thread.
+ *
+ * Also the Settings view of the cache ([FreeboxArtCacheInfo]): [sizeBytes] is computed on
+ * first collection and refreshed by [clear], [deleteAll] and [refreshSize] (called by
+ * FreeboxLibrarySync after each scan) — not after every single [write].
  */
 @Singleton
-class FreeboxArtCache @Inject constructor(@ApplicationContext private val context: Context) {
+class FreeboxArtCache @Inject constructor(
+    @ApplicationContext private val context: Context,
+) : FreeboxArtCacheInfo {
 
     private val dir: File
         get() = File(context.filesDir, DIR_NAME)
@@ -42,14 +56,31 @@ class FreeboxArtCache @Inject constructor(@ApplicationContext private val contex
         }.getOrDefault(false)
     }
 
+    /** null until first computed. */
+    private val size = MutableStateFlow<Long?>(null)
+
+    override val sizeBytes: Flow<Long> =
+        size.onStart { if (size.value == null) refreshSize() }
+            .filterNotNull()
+            .flowOn(Dispatchers.IO)
+
     /** Total size of the cache on disk, in bytes. */
-    fun sizeBytes(): Long =
+    fun diskSizeBytes(): Long =
         dir.listFiles()?.sumOf { if (it.isFile) it.length() else 0L } ?: 0L
 
-    /** Deletes every cached image. */
-    fun clear() {
-        dir.deleteRecursively()
+    /** Recomputes [sizeBytes] from the disk. Blocking. */
+    fun refreshSize() {
+        size.value = diskSizeBytes()
     }
+
+    /** Deletes every cached image. Blocking. */
+    fun deleteAll() {
+        dir.deleteRecursively()
+        refreshSize()
+    }
+
+    /** Settings action: [deleteAll] off the main thread. */
+    override suspend fun clear() = withContext(Dispatchers.IO) { deleteAll() }
 
     /**
      * Deletes the art of albums not in [albumIds] plus leftover temp files.

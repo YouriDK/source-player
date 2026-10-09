@@ -17,6 +17,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.lifecycleScope
+import com.source.player.data.freebox.library.FreeboxLibrarySync
 import com.source.player.data.scanner.MediaScanner
 import com.source.player.ui.navigation.SourceNavHost
 import com.source.player.ui.theme.SourceTheme
@@ -30,6 +31,7 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
 
   @Inject lateinit var scanner: MediaScanner
+  @Inject lateinit var freeboxSync: FreeboxLibrarySync
 
   /**
    * Single launcher for all runtime permissions. The launcher is registered unconditionally
@@ -69,6 +71,9 @@ class MainActivity : ComponentActivity() {
    */
   override fun onStart() {
     super.onStart()
+    // The Freebox library needs no audio permission: its catch-up scan (LAN, unmetered,
+    // last complete pass > 30 min) runs whether the permission was granted or not.
+    lifecycleScope.launch { freeboxSync.maybeScan() }
     if (!hasAudioPermission()) return
     lifecycleScope.launch { scanner.scanIfStale() }
   }

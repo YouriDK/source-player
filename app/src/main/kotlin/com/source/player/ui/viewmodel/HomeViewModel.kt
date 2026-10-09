@@ -78,10 +78,7 @@ constructor(
                         null
                 )
 
-        /**
-         * Freebox indexing progress, null when idle (Stream mode's counterpart of [scanProgress]).
-         * TODO(lot 3): fed by FreeboxLibraryScanner through LibraryModeRepository.
-         */
+        /** Freebox indexing progress, null when idle (Stream mode's counterpart of [scanProgress]). */
         val indexingProgress = libraryMode.indexingProgress
 
         fun scanLibrary() = viewModelScope.launch { scanner.scan() }
