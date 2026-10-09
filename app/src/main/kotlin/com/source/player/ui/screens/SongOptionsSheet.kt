@@ -21,6 +21,7 @@ import com.source.player.data.db.entity.SongEntity
 import com.source.player.ui.icons.HugeIcons
 import com.source.player.ui.navigation.Routes
 import com.source.player.ui.viewmodel.SongOptionsViewModel
+import com.source.player.ui.viewmodel.isTagEditable
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -102,9 +103,12 @@ fun SongOptionsSheet(
                         icon = HugeIcons.PlaylistAdd,
                         label = "Add to Playlist"
                 ) { showPlaylistPicker = true }
-                OptionRow(icon = HugeIcons.Edit, label = "Edit Tags") {
-                    navController.navigate(Routes.tagEditor(song.id))
-                    onDismiss()
+                // Freebox files can't be rewritten from the phone.
+                if (song.isTagEditable) {
+                    OptionRow(icon = HugeIcons.Edit, label = "Edit Tags") {
+                        navController.navigate(Routes.tagEditor(song.id))
+                        onDismiss()
+                    }
                 }
                 OptionRow(icon = HugeIcons.Album, label = "Go to Album") {
                     navController.navigate(Routes.albumDetail(song.albumId))

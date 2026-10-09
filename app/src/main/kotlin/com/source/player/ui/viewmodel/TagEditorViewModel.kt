@@ -9,6 +9,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.source.player.data.db.dao.SongDao
 import com.source.player.data.db.entity.SongEntity
+import com.source.player.data.db.entity.isRemote
+import com.source.player.data.freebox.FreeboxPaths
 import com.source.player.data.tag.AudioTagWriter
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -100,6 +102,8 @@ constructor(
         fun save() =
                 viewModelScope.launch {
                         val original = _song.value ?: return@launch
+                        // Freebox files can't be rewritten (no MediaStore entry, remote file).
+                        if (!original.isTagEditable) return@launch
 
                         val updatedTitle = title.value.trim().take(500).ifEmpty { original.title }
                         val updatedArtist = artist.value.trim().take(300).ifEmpty { original.artist }
@@ -265,3 +269,7 @@ constructor(
                 }
         }
 }
+
+/** Only on-device files can be re-tagged; Freebox tracks (indexed or live fbx://) cannot. */
+val SongEntity.isTagEditable: Boolean
+        get() = !isRemote && !FreeboxPaths.isFreeboxUrl(path)

@@ -417,8 +417,15 @@ fun PlayerScreen(
                             textAlign = TextAlign.Center,
                             modifier =
                                     Modifier.clickable(
+                                            // Freebox tracks can't be re-tagged. Test the URI, not
+                                            // the mediaId: an indexed Freebox track has a numeric
+                                            // (negative) id and only its URI says fbx://; a live
+                                            // browser track has the fbx:// url as mediaId.
                                             enabled =
-                                                    songId != null &&
+                                                    (songId ?: -1L) >= 0L &&
+                                                            !com.source.player.data.freebox.FreeboxPaths.isFreeboxUrl(
+                                                                    song?.localConfiguration?.uri?.toString()
+                                                            ) &&
                                                             !com.source.player.data.freebox.FreeboxPaths.isFreeboxUrl(
                                                                     song?.mediaId
                                                             )
