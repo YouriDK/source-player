@@ -155,8 +155,14 @@ class FreeboxClient @Inject constructor(
         return Result.success(FreeboxStatus(boxName = name, mode = endpoint.mode, latencyMs = latency))
     }
 
-    suspend fun list(url: String?): List<RemoteEntry> {
+    /**
+     * Lists a folder ([url] null = the disks). [requireLan] = true throws
+     * [FreeboxUnreachableException] unless the box is reached over the LAN (the
+     * library scan must never run over mobile data).
+     */
+    suspend fun list(url: String?, requireLan: Boolean = false): List<RemoteEntry> {
         val parentUrl = url?.let { FreeboxPaths.toUrl(FreeboxPaths.toDisplayPath(it)) } ?: FreeboxPaths.SCHEME
+        if (requireLan) ensureLan(parentUrl)
         val pathB64 = FreeboxPaths.toB64(parentUrl)
         val outcome = sessions.withSession { base, token ->
             api.ls(base, token, pathB64, removeHidden = true)
@@ -168,6 +174,39 @@ class FreeboxClient @Inject constructor(
         return entries
             .filter { !it.hidden && !it.name.startsWith(".") && it.name != "." && it.name != ".." }
             .map { it.toRemoteEntry(parentUrl) }
+    }
+
+    /**
+     * Reads at most [length] bytes of the file at [url] from [offset] (HTTP Range on
+     * /dl/, the response is released as soon as enough bytes arrived). A short array
+     * means end of file. Re-logs in transparently once on an expired session.
+     * [requireLan] = true throws [FreeboxUnreachableException] unless on the LAN.
+     */
+    suspend fun readRange(url: String, offset: Long, length: Int, requireLan: Boolean = false): ByteArray {
+        val fileUrl = FreeboxPaths.toUrl(FreeboxPaths.toDisplayPath(url))
+        if (requireLan) ensureLan(fileUrl)
+        val pathB64 = FreeboxPaths.toB64(fileUrl)
+        val outcome = sessions.withSession { base, token ->
+            api.readRange(base, token, pathB64, offset, length)
+        }
+        return when (outcome) {
+            is FbxResult.Ok -> outcome.value
+            is FbxResult.Err -> throw outcome.error.toException(fileUrl)
+        }
+    }
+
+    /**
+     * How the box is currently reached (cached endpoint, LAN probe when none is cached);
+     * null when neither the LAN nor a stored remote config is usable. REMOTE only means
+     * a remote config exists — FreeboxReachability confirms it actually answers.
+     */
+    suspend fun currentMode(): ConnectionMode? = resolver.resolve().getOrNull()?.mode
+
+    private suspend fun ensureLan(context: String) {
+        val mode = currentMode()
+        if (mode != ConnectionMode.LAN) {
+            throw FreeboxUnreachableException("Freebox not on the local network ($context, mode=$mode)")
+        }
     }
 
     suspend fun streamingAccess(): StreamingAccess =
