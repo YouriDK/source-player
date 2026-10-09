@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.source.player.data.db.dao.PlaylistDao
 import com.source.player.data.db.dao.SongDao
 import com.source.player.data.db.entity.PlaylistEntity
+import com.source.player.data.db.entity.SOURCE_LOCAL
 import com.source.player.data.db.entity.SongEntity
 import com.source.player.service.PlaybackController
 import com.source.player.ui.screens.FolderItem
@@ -33,7 +34,7 @@ constructor(
     val breadcrumbs: StateFlow<List<Pair<String, String?>>> = _breadcrumbs.asStateFlow()
 
     private val allSongs: StateFlow<List<SongEntity>> =
-            songDao.getAllFlow()
+            songDao.getAllBySourceFlow(SOURCE_LOCAL)
                     .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
