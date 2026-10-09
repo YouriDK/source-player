@@ -128,6 +128,8 @@ constructor(
                         val songs = mutableListOf<SongEntity>()
                         val albums = mutableMapOf<Long, AlbumEntity>()
                         val artists = mutableMapOf<Long, ArtistEntity>()
+                        // Indexes in [songs] of rows whose artist was guessed from the file name
+                        val deducedSongs = mutableListOf<Int>()
                         // songId → genre, queried up front so SongEntity.genre can be
                         // populated during the main pass
                         val songGenreMap = buildSongGenreMap()
@@ -221,13 +223,36 @@ constructor(
                                                 continue
 
                                         val id = it.getLong(idCol)
-                                        val title = it.getString(titleCol) ?: "<Unknown>"
-                                        val artist = it.getString(artistCol) ?: "<Unknown>"
-                                        val artistId = it.getLong(artistIdCol)
+                                        val taggedTitle = it.getString(titleCol)
+                                        val taggedArtist = it.getString(artistCol)
+                                        val mediaStoreArtist = taggedArtist ?: "<Unknown>"
+                                        val mediaStoreArtistId = it.getLong(artistIdCol)
                                         val album = it.getString(albumCol) ?: "<Unknown>"
                                         val albumId = it.getLong(albumIdCol)
                                         val duration = it.getLong(durCol)
-                                        val track = it.getInt(trackCol)
+                                        val taggedTrack = it.getInt(trackCol)
+
+                                        // No artist tag: guess "Artist - Title" from the
+                                        // file name. Tags keep priority (null = keep them).
+                                        val guessed =
+                                                FilenameTags.resolve(
+                                                        fileName = path.substringAfterLast('/'),
+                                                        parentFolder = folder.substringAfterLast('/'),
+                                                        taggedArtist = taggedArtist,
+                                                        taggedTitle = taggedTitle,
+                                                        track = taggedTrack,
+                                                        fallbackArtist = mediaStoreArtist,
+                                                )
+                                        val title = guessed?.title ?: taggedTitle ?: "<Unknown>"
+                                        val artist = guessed?.artist ?: mediaStoreArtist
+                                        val track = guessed?.track ?: taggedTrack
+                                        // A deduced artist gets its id once the pass is
+                                        // over (see resolveDeducedArtistIds); until then it
+                                        // keeps MediaStore's <unknown> id.
+                                        val artistId = mediaStoreArtistId
+                                        if (guessed != null && artist != mediaStoreArtist) {
+                                                deducedSongs.add(songs.size)
+                                        }
                                         val year = it.getInt(yearCol)
                                         val dateAdded = it.getLong(dateCol)
                                         val size = it.getLong(sizeCol)
@@ -257,11 +282,13 @@ constructor(
 
                                         albums
                                                 .getOrPut(albumId) {
+                                                        // Album untouched by file-name
+                                                        // guesses: MediaStore's artist.
                                                         AlbumEntity(
                                                                 albumId,
                                                                 album,
-                                                                artist,
-                                                                artistId,
+                                                                mediaStoreArtist,
+                                                                mediaStoreArtistId,
                                                                 year,
                                                                 artUri,
                                                                 0
@@ -269,19 +296,6 @@ constructor(
                                                 }
                                                 .let { a ->
                                                         albums[albumId] =
-                                                                a.copy(
-                                                                        songCount =
-                                                                                a.songCount +
-                                                                                        1
-                                                                )
-                                                }
-
-                                        artists
-                                                .getOrPut(artistId) {
-                                                        ArtistEntity(artistId, artist, 0, 0)
-                                                }
-                                                .let { a ->
-                                                        artists[artistId] =
                                                                 a.copy(
                                                                         songCount =
                                                                                 a.songCount +
@@ -297,6 +311,15 @@ constructor(
                                                         )
                                         }
                                 }
+                        }
+
+                        resolveDeducedArtistIds(songs, deducedSongs)
+                        for (song in songs) {
+                                val a =
+                                        artists.getOrPut(song.artistId) {
+                                                ArtistEntity(song.artistId, song.artist, 0, 0)
+                                        }
+                                artists[song.artistId] = a.copy(songCount = a.songCount + 1)
                         }
 
                         // What the DB held before this pass — used below to tell
@@ -370,6 +393,36 @@ constructor(
                         _progress.value = ScanProgress(isScanning = false)
                         android.util.Log.e("MediaScanner", "Scan failed", e)
                 }
+        }
+
+        /**
+         * Gives every song whose artist was guessed from its file name an artist id. The
+         * MediaStore id of those rows is the shared `<unknown>` artist, which would lump
+         * every guessed artist together. A guessed name that matches (case-insensitive) a
+         * tagged artist of this pass joins that artist's MediaStore id; otherwise the id
+         * is [FilenameTags.derivedArtistId], hashed from the name so it is the same on
+         * every pass. Album ids are not touched, so album art keeps resolving.
+         */
+        private fun resolveDeducedArtistIds(songs: MutableList<SongEntity>, deduced: List<Int>) {
+                if (deduced.isEmpty()) return
+                val deducedSet = deduced.toHashSet()
+                val taggedIds = HashMap<String, Long>()
+                songs.forEachIndexed { i, s ->
+                        if (i !in deducedSet && !FilenameTags.isUnknownArtist(s.artist)) {
+                                taggedIds.putIfAbsent(s.artist.trim().lowercase(), s.artistId)
+                        }
+                }
+                for (i in deduced) {
+                        val s = songs[i]
+                        val id =
+                                taggedIds[s.artist.trim().lowercase()]
+                                        ?: FilenameTags.derivedArtistId(s.artist)
+                        songs[i] = s.copy(artistId = id)
+                }
+                android.util.Log.d(
+                        "MediaScanner",
+                        "Guessed artist from file name for ${deduced.size} tracks"
+                )
         }
 
 private data class GenreRef(val id: Long, val name: String)

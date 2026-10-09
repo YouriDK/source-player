@@ -19,6 +19,7 @@ import com.source.player.data.freebox.FreeboxPaths
 import com.source.player.data.freebox.FreeboxUnreachableException
 import com.source.player.data.freebox.RemoteEntry
 import com.source.player.data.scanner.AlbumArtEnricher
+import com.source.player.data.scanner.FilenameTags
 import com.source.player.data.scanner.ScanProgress
 import java.io.FileNotFoundException
 import java.net.SocketTimeoutException
@@ -545,7 +546,11 @@ class FreeboxLibraryScanner @Inject constructor(
         val previous = previousSongs[file.url]
         if (previous != null && previous.size == file.size && previous.remoteMtime == file.mtime) {
             state.reused.incrementAndGet()
-            return FileResult.Kept(previous.id)
+            // Unchanged file: no network read, but a row indexed without an artist may
+            // still gain one from its file name (local computation, written once: the
+            // rewritten row no longer has an unknown artist, or is equal next time).
+            val guessed = guessFromFileName(file, previous)
+            return if (guessed != null) FileResult.Write(guessed) else FileResult.Kept(previous.id)
         }
         // Once the pass is stopped, known rows are kept as they are (no deletion follows)
         if (state.stopped() || cancelRequested) {
@@ -602,12 +607,28 @@ class FreeboxLibraryScanner @Inject constructor(
             val duration = tag(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
             if (duration in 1 until MIN_DURATION_MS) return FileResult.Skip
 
-            val title = tag(MediaMetadataRetriever.METADATA_KEY_TITLE) ?: file.name.substringBeforeLast('.')
-            val artist = tag(MediaMetadataRetriever.METADATA_KEY_ARTIST) ?: folderArtist(file)
-            val albumArtist = tag(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST) ?: artist
+            val taggedTitle = tag(MediaMetadataRetriever.METADATA_KEY_TITLE)
+            val taggedArtist = tag(MediaMetadataRetriever.METADATA_KEY_ARTIST)
+                ?.takeUnless { FilenameTags.isUnknownArtist(it) }
+            val rawArtist = taggedArtist ?: folderArtist(file)
+            // Album artist (hence album id) from the tags / folder only: a file-name guess
+            // changes the track's artist, never the album it belongs to.
+            val albumArtist = tag(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST) ?: rawArtist
             val album = tag(MediaMetadataRetriever.METADATA_KEY_ALBUM) ?: folderAlbum(file)
-            val track = tag(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER)
+            val taggedTrack = tag(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER)
                 ?.substringBefore('/')?.trim()?.toIntOrNull() ?: 0
+            // No artist tag: guess "Artist - Title" from the file name (tags keep priority)
+            val guessed = FilenameTags.resolve(
+                fileName = file.name,
+                parentFolder = file.dirSegments.lastOrNull(),
+                taggedArtist = taggedArtist,
+                taggedTitle = taggedTitle,
+                track = taggedTrack,
+                fallbackArtist = rawArtist,
+            )
+            val title = guessed?.title ?: taggedTitle ?: file.name.substringBeforeLast('.')
+            val artist = guessed?.artist ?: rawArtist
+            val track = guessed?.track ?: taggedTrack
             val year = tag(MediaMetadataRetriever.METADATA_KEY_YEAR)?.toIntOrNull()
                 ?: tag(MediaMetadataRetriever.METADATA_KEY_DATE)
                     ?.take(4)?.takeIf { it.length == 4 && it.all(Char::isDigit) }?.toInt()
@@ -654,12 +675,23 @@ class FreeboxLibraryScanner @Inject constructor(
                 "Name-only tags for ${file.url} (${source.bytesRead} bytes read): " +
                     (failure?.message ?: "${e.javaClass.simpleName}: ${e.message}"),
             )
-            val artist = folderArtist(file)
+            val folderArtist = folderArtist(file)
             val album = folderAlbum(file)
-            val albumId = FreeboxIds.album(artist, album)
+            val albumId = FreeboxIds.album(folderArtist, album)
+            // Else buildAlbums would take the (possibly guessed) track artist for a new album
+            rememberAlbumArtist(albumId, folderArtist)
+            val guessed = FilenameTags.resolve(
+                fileName = file.name,
+                parentFolder = file.dirSegments.lastOrNull(),
+                taggedArtist = null,
+                taggedTitle = null,
+                track = 0,
+                fallbackArtist = folderArtist,
+            )
             val song = songEntity(
-                file, dateAdded, file.name.substringBeforeLast('.'), artist, album, albumId,
-                duration = 0, track = 0, year = 0, genre = "",
+                file, dateAdded, guessed?.title ?: file.name.substringBeforeLast('.'),
+                guessed?.artist ?: folderArtist, album, albumId,
+                duration = 0, track = guessed?.track ?: 0, year = 0, genre = "",
             )
             // A transient read error must not freeze name-only tags: a negative mtime never
             // matches a listing, so the file is read again next scan.
@@ -679,6 +711,32 @@ class FreeboxLibraryScanner @Inject constructor(
      */
     private fun checkReads(source: FreeboxMediaDataSource) {
         source.failure?.let { if (it !is FreeboxReadCapException) throw it }
+    }
+
+    /**
+     * File-name guess for a reused row whose artist is unknown (indexed before the guess
+     * existed, or name-only). Same rule as a fresh read: the stored title is kept unless
+     * it is just the file name. Album and album id are left as they are. Null when the
+     * row has an artist or the guess changes nothing.
+     */
+    private fun guessFromFileName(file: AudioFile, previous: SongEntity): SongEntity? {
+        val guessed = FilenameTags.resolve(
+            fileName = file.name,
+            parentFolder = file.dirSegments.lastOrNull(),
+            taggedArtist = previous.artist,
+            taggedTitle = previous.title,
+            track = previous.trackNumber,
+            fallbackArtist = previous.artist,
+        ) ?: return null
+        if (guessed.artist == previous.artist && guessed.title == previous.title &&
+            guessed.track == previous.trackNumber
+        ) return null
+        return previous.copy(
+            artist = guessed.artist,
+            artistId = FreeboxIds.artist(guessed.artist),
+            title = guessed.title,
+            trackNumber = guessed.track,
+        )
     }
 
     private fun folderArtist(file: AudioFile): String =
