@@ -24,6 +24,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.source.player.BuildConfig
 import com.source.player.data.freebox.ConnectionMode
+import com.source.player.data.preferences.LibraryLayout
 import com.source.player.data.preferences.LibraryMode
 import com.source.player.ui.components.openMusicFolderPicker
 import com.source.player.service.AudioOutputDevice
@@ -71,6 +72,7 @@ fun SettingsScreen(
   val freeboxBoxName by vm.freeboxBoxName.collectAsState()
   val freeboxMusicFolder by vm.freeboxMusicFolder.collectAsState()
   val libraryMode by vm.libraryMode.collectAsState()
+  val layouts by vm.libraryLayouts.collectAsState()
   val freeboxArtCacheSize by vm.freeboxArtCacheSize.collectAsState()
   val openMusicFolderPicker by vm.openMusicFolderPicker.collectAsState()
   val freeboxPairing by vm.freeboxPairing.collectAsState()
@@ -157,6 +159,37 @@ fun SettingsScreen(
                 }
         vm.setArtDownloadPolicy(next)
       }
+    }
+
+    SettingsSection("Library") {
+      SegmentedChoiceItem(
+              title = "Songs",
+              options = LibraryLayout.entries,
+              selected = layouts.songs,
+              label = { it.label() },
+              onSelect = { vm.setSongsLayout(it) },
+      )
+      SegmentedChoiceItem(
+              title = "Albums",
+              options = LibraryLayout.entries,
+              selected = layouts.albums,
+              label = { it.label() },
+              onSelect = { vm.setAlbumsLayout(it) },
+      )
+      SegmentedChoiceItem(
+              title = "Artists",
+              options = LibraryLayout.entries,
+              selected = layouts.artists,
+              label = { it.label() },
+              onSelect = { vm.setArtistsLayout(it) },
+      )
+      SegmentedChoiceItem(
+              title = "Gallery columns",
+              options = listOf(2, 3),
+              selected = layouts.galleryColumns,
+              label = { it.toString() },
+              onSelect = { vm.setGalleryColumns(it) },
+      )
     }
 
     SettingsSection("Freebox") {
@@ -535,6 +568,45 @@ fun LastFmLoginModal(
           dismissButton = {
             TextButton(onClick = { if (!isLoading) onDismiss() }) { Text("Cancel") }
           },
+  )
+}
+
+// ---- Library layouts ----
+
+private fun LibraryLayout.label(): String =
+        when (this) {
+          LibraryLayout.LIST -> "List"
+          LibraryLayout.GALLERY -> "Gallery"
+          LibraryLayout.DETAILS -> "Details"
+        }
+
+/** Title with a segmented choice below it (same segments as the Library mode switch). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun <T> SegmentedChoiceItem(
+        title: String,
+        options: List<T>,
+        selected: T,
+        label: (T) -> String,
+        onSelect: (T) -> Unit,
+) {
+  ListItem(
+          headlineContent = { Text(title, style = MaterialTheme.typography.bodyLarge) },
+          supportingContent = {
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+              options.forEachIndexed { index, option ->
+                SegmentedButton(
+                        selected = selected == option,
+                        onClick = { if (selected != option) onSelect(option) },
+                        shape = SegmentedButtonDefaults.itemShape(index, options.size),
+                        icon = {},
+                ) {
+                  Text(label(option))
+                }
+              }
+            }
+          },
+          colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
   )
 }
 
