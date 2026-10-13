@@ -118,46 +118,36 @@ fun SettingsScreen(
                     ),
     )
 
-    SettingsSection("Appearance") {
-      SettingsSwitch("Dark Mode", HugeIcons.DarkMode, isDark) { vm.setDarkMode(it) }
+    SettingsSection("Root") {
       SettingsItem(
-              "Accent Color",
-              HugeIcons.Palette,
+              "Freebox",
+              HugeIcons.Cloud,
               subtitle =
-                      VinylHuePresets.firstOrNull { kotlin.math.abs(it.hue - accentHue) < 0.5f }
-                              ?.label
-                              ?: "Custom hue ${accentHue.toInt()}\u00B0",
-      ) { showColorPicker = true }
-    }
-
-    SettingsSection("Playback") {
-      SettingsSwitch("Gapless Playback", HugeIcons.Equalizer, gapless) { vm.setGapless(it) }
-      SettingsSwitch("Audio Ducking", HugeIcons.VolumeLow, ducking) { vm.setAudioDucking(it) }
-      SettingsSwitch("Restore Playback", HugeIcons.Restart, restore) {
-        vm.setRestoreState(it)
-      }
-      SettingsItem(
-              "Audio Output",
-              HugeIcons.Speaker,
-              subtitle = activeAudioDevice?.name ?: "System Default",
-      ) { showAudioOutput = true }
-    }
-
-    SettingsSection("Last.fm") {
-      SettingsSwitch("Scrobbling", HugeIcons.Radio, scrobble) { vm.setScrobbling(it) }
-      SettingsItem(
-              "Account",
-              HugeIcons.Account,
-              subtitle = if (!lastFmUser.isNullOrBlank()) "@$lastFmUser" else "Connect Last.fm",
-      ) { showLastFmModal = true }
-      SettingsItem("Image Download", HugeIcons.Image, subtitle = artPolicy) {
-        val next =
-                when (artPolicy) {
-                  "NEVER" -> "WIFI"
-                  "WIFI" -> "ALWAYS"
-                  else -> "NEVER"
-                }
-        vm.setArtDownloadPolicy(next)
+                      if (!freeboxPaired) "Pair with your Freebox"
+                      else {
+                        val name = freeboxBoxName ?: "Freebox"
+                        when (val st = freeboxStatus) {
+                          is FreeboxStatusUi.Ok -> "$name \u00B7 Connected (${st.status.mode.label()})"
+                          FreeboxStatusUi.Checking -> "$name \u00B7 Checking\u2026"
+                          is FreeboxStatusUi.Failed -> "$name \u00B7 Unreachable"
+                          FreeboxStatusUi.Unknown -> name
+                        }
+                      },
+      ) { showFreeboxDialog = true }
+      // Library mode + music folder only make sense with a paired box.
+      if (freeboxPaired) {
+        LibraryModeItem(mode = libraryMode, onChange = { vm.setLibraryMode(it) })
+        MusicFolderItem(
+                displayPath = freeboxMusicFolder?.displayPath,
+                onChange = { navController.openMusicFolderPicker() },
+        )
+        SettingsItem(
+                "Clear cover cache",
+                HugeIcons.Image,
+                subtitle =
+                        if (freeboxArtCacheSize > 0) formatBytes(freeboxArtCacheSize)
+                        else "Empty",
+        ) { if (freeboxArtCacheSize > 0) vm.clearFreeboxArtCache() }
       }
     }
 
@@ -192,37 +182,29 @@ fun SettingsScreen(
       )
     }
 
-    SettingsSection("Freebox") {
+    SettingsSection("Appearance") {
+      SettingsSwitch("Dark Mode", HugeIcons.DarkMode, isDark) { vm.setDarkMode(it) }
       SettingsItem(
-              "Freebox",
-              HugeIcons.Cloud,
+              "Accent Color",
+              HugeIcons.Palette,
               subtitle =
-                      if (!freeboxPaired) "Pair with your Freebox"
-                      else {
-                        val name = freeboxBoxName ?: "Freebox"
-                        when (val st = freeboxStatus) {
-                          is FreeboxStatusUi.Ok -> "$name \u00B7 Connected (${st.status.mode.label()})"
-                          FreeboxStatusUi.Checking -> "$name \u00B7 Checking\u2026"
-                          is FreeboxStatusUi.Failed -> "$name \u00B7 Unreachable"
-                          FreeboxStatusUi.Unknown -> name
-                        }
-                      },
-      ) { showFreeboxDialog = true }
-      // Library mode + music folder only make sense with a paired box.
-      if (freeboxPaired) {
-        LibraryModeItem(mode = libraryMode, onChange = { vm.setLibraryMode(it) })
-        MusicFolderItem(
-                displayPath = freeboxMusicFolder?.displayPath,
-                onChange = { navController.openMusicFolderPicker() },
-        )
-        SettingsItem(
-                "Clear cover cache",
-                HugeIcons.Image,
-                subtitle =
-                        if (freeboxArtCacheSize > 0) formatBytes(freeboxArtCacheSize)
-                        else "Empty",
-        ) { if (freeboxArtCacheSize > 0) vm.clearFreeboxArtCache() }
+                      VinylHuePresets.firstOrNull { kotlin.math.abs(it.hue - accentHue) < 0.5f }
+                              ?.label
+                              ?: "Custom hue ${accentHue.toInt()}\u00B0",
+      ) { showColorPicker = true }
+    }
+
+    SettingsSection("Playback") {
+      SettingsSwitch("Gapless Playback", HugeIcons.Equalizer, gapless) { vm.setGapless(it) }
+      SettingsSwitch("Audio Ducking", HugeIcons.VolumeLow, ducking) { vm.setAudioDucking(it) }
+      SettingsSwitch("Restore Playback", HugeIcons.Restart, restore) {
+        vm.setRestoreState(it)
       }
+      SettingsItem(
+              "Audio Output",
+              HugeIcons.Speaker,
+              subtitle = activeAudioDevice?.name ?: "System Default",
+      ) { showAudioOutput = true }
     }
 
     SettingsSection("Library & UX") {
@@ -234,6 +216,24 @@ fun SettingsScreen(
               HugeIcons.Refresh,
               subtitle = scanProgress ?: "Tap to rescan your music library",
       ) { if (scanProgress == null) vm.scanLibrary() }
+    }
+
+    SettingsSection("Last.fm") {
+      SettingsSwitch("Scrobbling", HugeIcons.Radio, scrobble) { vm.setScrobbling(it) }
+      SettingsItem(
+              "Account",
+              HugeIcons.Account,
+              subtitle = if (!lastFmUser.isNullOrBlank()) "@$lastFmUser" else "Connect Last.fm",
+      ) { showLastFmModal = true }
+      SettingsItem("Image Download", HugeIcons.Image, subtitle = artPolicy) {
+        val next =
+                when (artPolicy) {
+                  "NEVER" -> "WIFI"
+                  "WIFI" -> "ALWAYS"
+                  else -> "NEVER"
+                }
+        vm.setArtDownloadPolicy(next)
+      }
     }
 
     Spacer(Modifier.height(24.dp))
