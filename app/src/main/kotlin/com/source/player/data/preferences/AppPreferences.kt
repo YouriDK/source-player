@@ -32,9 +32,11 @@ class AppPreferences @Inject constructor(@ApplicationContext private val ctx: Co
     val SEARCH_BAR_BOTTOM = booleanPreferencesKey("search_bar_bottom")
     val REMEMBER_LAST_TAB = booleanPreferencesKey("remember_last_tab")
     val LAST_LIBRARY_TAB = intPreferencesKey("last_library_tab")
+    val LAST_FOLDER_PATH = stringPreferencesKey("last_folder_path")
     val QUEUE_JSON = stringPreferencesKey("queue_json")
     val QUEUE_INDEX = intPreferencesKey("queue_index")
     val QUEUE_POSITION = longPreferencesKey("queue_position_ms")
+    val LAST_ROUTE = stringPreferencesKey("last_route") // screen to reopen, see StartDestinationViewModel
     val FONT_FAMILY = stringPreferencesKey("font_family")
     val SONOS_ACTIVE_ID = stringPreferencesKey("sonos_active_id")
     // MediaStore change-detection stamps — see MediaScanner.scanIfStale()
@@ -85,9 +87,12 @@ class AppPreferences @Inject constructor(@ApplicationContext private val ctx: Co
           ctx.dataStore.data.map { it[Keys.SEARCH_BAR_BOTTOM] ?: false }
   val rememberLastTab: Flow<Boolean> = ctx.dataStore.data.map { it[Keys.REMEMBER_LAST_TAB] ?: true }
   val lastLibraryTab: Flow<Int> = ctx.dataStore.data.map { it[Keys.LAST_LIBRARY_TAB] ?: 0 }
+  val lastFolderPath: Flow<String?> = ctx.dataStore.data.map { it[Keys.LAST_FOLDER_PATH] }
   val savedQueueJson: Flow<String?> = ctx.dataStore.data.map { it[Keys.QUEUE_JSON] }
   val savedQueueIndex: Flow<Int> = ctx.dataStore.data.map { it[Keys.QUEUE_INDEX] ?: 0 }
   val savedQueuePosition: Flow<Long> = ctx.dataStore.data.map { it[Keys.QUEUE_POSITION] ?: 0L }
+  /** Concrete route of the screen the user was last on (e.g. "album/42"), null if never saved. */
+  val lastRoute: Flow<String?> = ctx.dataStore.data.map { it[Keys.LAST_ROUTE] }
   val fontFamily: Flow<String> =
           ctx.dataStore.data.map { it[Keys.FONT_FAMILY] ?: "PlusJakartaSans" }
   val sonosActiveId: Flow<String?> = ctx.dataStore.data.map { it[Keys.SONOS_ACTIVE_ID] }
@@ -256,6 +261,10 @@ class AppPreferences @Inject constructor(@ApplicationContext private val ctx: Co
           ctx.dataStore.edit { it[Keys.SEARCH_BAR_BOTTOM] = v }
   suspend fun setRememberLastTab(v: Boolean) = ctx.dataStore.edit { it[Keys.REMEMBER_LAST_TAB] = v }
   suspend fun setLastLibraryTab(v: Int) = ctx.dataStore.edit { it[Keys.LAST_LIBRARY_TAB] = v }
+  suspend fun setLastFolderPath(path: String?) =
+      ctx.dataStore.edit {
+        if (path == null) it.remove(Keys.LAST_FOLDER_PATH) else it[Keys.LAST_FOLDER_PATH] = path
+      }
   suspend fun setFontFamily(v: String) = ctx.dataStore.edit { it[Keys.FONT_FAMILY] = v }
   suspend fun setSonosActiveId(v: String?) =
           ctx.dataStore.edit {
@@ -266,6 +275,10 @@ class AppPreferences @Inject constructor(@ApplicationContext private val ctx: Co
             it[Keys.QUEUE_JSON] = json
             it[Keys.QUEUE_INDEX] = index
             it[Keys.QUEUE_POSITION] = positionMs
+          }
+  suspend fun setLastRoute(route: String?) =
+          ctx.dataStore.edit {
+            if (route == null) it.remove(Keys.LAST_ROUTE) else it[Keys.LAST_ROUTE] = route
           }
 
   /**

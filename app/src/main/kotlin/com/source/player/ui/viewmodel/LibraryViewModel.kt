@@ -33,7 +33,7 @@ constructor(
         private val controller: PlaybackController,
         private val libraryMode: LibraryModeRepository,
         private val scanner: MediaScanner,
-        prefs: AppPreferences,
+        private val prefs: AppPreferences,
 ) : ViewModel() {
         /** Per-tab layouts (shared by Local and Stream); defaults match the original rendering. */
         val layouts: StateFlow<LibraryLayoutSettings> =
@@ -100,6 +100,16 @@ constructor(
         private val _activeTab = MutableStateFlow(LibraryTab.Artists)
         val activeTab: StateFlow<LibraryTab> = _activeTab.asStateFlow()
 
+        init {
+                // Reopen on the sub-tab the user had selected before the app was killed.
+                viewModelScope.launch {
+                        if (prefs.restoreState.first()) {
+                                val idx = prefs.lastLibraryTab.first()
+                                _activeTab.value = LibraryTab.entries.getOrNull(idx) ?: LibraryTab.Artists
+                        }
+                }
+        }
+
         private val _query = MutableStateFlow("")
         val query: StateFlow<String> = _query.asStateFlow()
 
@@ -150,6 +160,7 @@ constructor(
         fun onTabChange(tab: LibraryTab) {
                 if (_activeTab.value != tab) {
                         _activeTab.value = tab
+                        viewModelScope.launch { prefs.setLastLibraryTab(tab.ordinal) }
                         // Per SEARCH_MERGE.md §4: clear query on tab change so the
                         // placeholder text refreshes and results never look mismatched.
                         _query.value = ""

@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -84,14 +85,33 @@ val bottomNavItems =
 private val tabRoutes = bottomNavItems.map { it.route }.toSet()
 
 /**
- * @param startRoute tab the app opens on — Player when a queue was restored, Library
- * otherwise (decided before the first frame, see StartDestinationViewModel).
+ * @param startRoute tab the app opens on — the tab the user left last time, or Player /
+ * Library depending on whether a queue was restored (decided before the first frame, see
+ * StartDestinationViewModel).
+ * @param initialDetailRoute concrete detail route (e.g. "album/42") to open once over
+ * [startRoute] when the user left the app on it, so Back returns to that tab; null otherwise.
+ * @param onRouteChange called with the concrete route (arguments filled in) each time the
+ * current screen changes, so the last state can be restored at next launch.
  */
 @Composable
-fun SourceNavHost(startRoute: String) {
+fun SourceNavHost(
+        startRoute: String,
+        initialDetailRoute: String? = null,
+        onRouteChange: (String) -> Unit = {},
+) {
   val navController = rememberNavController()
   val currentBackStack by navController.currentBackStackEntryAsState()
   val currentRoute = currentBackStack?.destination?.route
+
+  // Reopen the detail screen the user left last time, once (not again after a
+  // configuration change: the restored back stack already holds it).
+  var initialDetailOpened by rememberSaveable { mutableStateOf(false) }
+  LaunchedEffect(Unit) {
+    if (!initialDetailOpened && initialDetailRoute != null) {
+      initialDetailOpened = true
+      navController.navigate(initialDetailRoute)
+    }
+  }
 
   // Last tab other than Player the user was in (detail screens count as their tab),
   // and the one the player's close button / back returns to: null when the player
@@ -111,6 +131,8 @@ fun SourceNavHost(startRoute: String) {
     pendingReturnTab = null
     previousRoute = currentRoute
   }
+  // Keyed on the entry, not the route pattern: album/1 → album/2 is a change too.
+  LaunchedEffect(currentBackStack?.id) { currentBackStack?.concreteRoute()?.let(onRouteChange) }
 
   fun openTab(route: String) {
     if (route == Routes.PLAYER && currentRoute != Routes.PLAYER) pendingReturnTab = lastTab
@@ -200,6 +222,19 @@ fun SourceNavHost(startRoute: String) {
       }
     }
   }
+}
+
+/**
+ * The route of this entry with its arguments filled in ("album/{albumId}" → "album/42"),
+ * as passed to navigate(). Only the single Long argument patterns used by [Routes] are
+ * resolved; other routes are returned as declared.
+ */
+private fun NavBackStackEntry.concreteRoute(): String? {
+  val pattern = destination.route ?: return null
+  val arg = Regex("""\{(\w+)\}""").find(pattern) ?: return pattern
+  val name = arg.groupValues[1]
+  val value = arguments?.takeIf { it.containsKey(name) }?.getLong(name) ?: return null
+  return pattern.replace(arg.value, value.toString())
 }
 
 /**

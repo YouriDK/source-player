@@ -272,7 +272,7 @@ constructor(
    * Tear playback down completely: the user swiped the mini player away, so the
    * bar must disappear and stay gone. Clearing the media items is what actually
    * hides it (the UI keys off [currentSong]), and the persisted queue has to go
-   * too or "Restore Playback" would bring it straight back on next launch.
+   * too or "Restore last state" would bring it straight back on next launch.
    */
   fun stopAndClear() {
     val sonos = sonosManager.activeDevice.value
