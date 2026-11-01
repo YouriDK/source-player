@@ -49,8 +49,8 @@ class MainActivity : ComponentActivity() {
           }
 
   override fun onCreate(savedInstanceState: Bundle?) {
-    // The splash stays up until the start tab is known (Player when a queue was
-    // restored, Library otherwise), so the first frame is already the right tab.
+    // The splash stays up until the start tab is known (the screen left last time, or
+    // Player / Library depending on a restored queue), so the first frame is already right.
     installSplashScreen().setKeepOnScreenCondition { startDestination.startRoute.value == null }
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
@@ -64,7 +64,13 @@ class MainActivity : ComponentActivity() {
       val accentHue by settingsVm.accentHue.collectAsState()
       val startRoute by startDestination.startRoute.collectAsState()
       SourceTheme(darkTheme = isDark, accentHue = accentHue) {
-        startRoute?.let { SourceNavHost(startRoute = it) }
+        startRoute?.let {
+          SourceNavHost(
+                  startRoute = it,
+                  initialDetailRoute = startDestination.initialDetailRoute,
+                  onRouteChange = startDestination::rememberRoute,
+          )
+        }
       }
     }
   }

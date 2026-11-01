@@ -7,6 +7,7 @@ import com.source.player.data.db.dao.SongDao
 import com.source.player.data.db.entity.PlaylistEntity
 import com.source.player.data.db.entity.SOURCE_LOCAL
 import com.source.player.data.db.entity.SongEntity
+import com.source.player.data.preferences.AppPreferences
 import com.source.player.service.PlaybackController
 import com.source.player.ui.screens.FolderItem
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -23,6 +24,7 @@ constructor(
         private val songDao: SongDao,
         private val playlistDao: PlaylistDao,
         private val controller: PlaybackController,
+        private val prefs: AppPreferences,
 ) : ViewModel() {
 
     // Current path being browsed — null = find the common root
@@ -135,8 +137,47 @@ constructor(
         return common
     }
 
+    init {
+        // Reopen on the folder the user was browsing before the app was killed.
+        viewModelScope.launch {
+            if (!prefs.restoreState.first()) return@launch
+            val saved = prefs.lastFolderPath.first() ?: return@launch
+            val songs = allSongs.first { it.isNotEmpty() }
+            val restored =
+                    withContext(Dispatchers.Default) {
+                        val root = computeRoot(songs)
+                        val valid =
+                                saved.startsWith("$root/") &&
+                                        songs.any {
+                                            it.folderPath == saved ||
+                                                    it.folderPath.startsWith("$saved/")
+                                        }
+                        if (!valid) return@withContext null
+                        val crumbs = mutableListOf<Pair<String, String?>>("Root" to null)
+                        var cumulative = root
+                        for (segment in saved.removePrefix("$root/").split("/")) {
+                            cumulative = "$cumulative/$segment"
+                            crumbs.add(segment to cumulative)
+                        }
+                        crumbs
+                    }
+            // Don't override a navigation the user already made while we were waiting.
+            if (restored != null && _currentPath.value == null) {
+                _breadcrumbs.value = restored
+                _currentPath.value = saved
+            } else if (restored == null) {
+                prefs.setLastFolderPath(null)
+            }
+        }
+    }
+
+    private fun persistPath(path: String?) {
+        viewModelScope.launch { prefs.setLastFolderPath(path) }
+    }
+
     fun navigateTo(path: String, name: String) {
         _currentPath.value = path
+        persistPath(path)
         val current = _breadcrumbs.value.toMutableList()
         // Pop any breadcrumbs past this path (in case user went back then forward)
         val existingIndex = current.indexOfFirst { it.second == path }
@@ -150,6 +191,7 @@ constructor(
 
     fun navigateToRoot() {
         _currentPath.value = null
+        persistPath(null)
         _breadcrumbs.value = listOf("Root" to null)
     }
 
@@ -164,6 +206,7 @@ constructor(
         if (index >= crumbs.size) return
         val (_, path) = crumbs[index]
         _currentPath.value = path
+        persistPath(path)
         _breadcrumbs.value = crumbs.subList(0, index + 1)
     }
 

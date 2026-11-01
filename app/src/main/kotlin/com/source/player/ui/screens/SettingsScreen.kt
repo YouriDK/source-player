@@ -197,7 +197,7 @@ fun SettingsScreen(
     SettingsSection("Playback") {
       SettingsSwitch("Gapless Playback", HugeIcons.Equalizer, gapless) { vm.setGapless(it) }
       SettingsSwitch("Audio Ducking", HugeIcons.VolumeLow, ducking) { vm.setAudioDucking(it) }
-      SettingsSwitch("Restore Playback", HugeIcons.Restart, restore) {
+      SettingsSwitch("Restore last state", HugeIcons.Restart, restore) {
         vm.setRestoreState(it)
       }
       SettingsItem(
