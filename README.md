@@ -74,3 +74,11 @@ Source is a modern, native Android music player. It focuses on a clean interface
 
 The version lives in a single place — `source.version` in `gradle.properties`, as `MAJOR.MINOR.PATCH`.
 `versionCode` is derived from it at build time, so it always moves forward with the version name.
+
+## Releasing
+
+1. Bump `source.version` in `gradle.properties` and commit.
+2. Tag and push: `git tag vX.Y.Z && git push --tags` (the tag must match the version, otherwise the workflow fails).
+3. The `Release` GitHub Actions workflow builds the signed release APK and attaches `Source-X.Y.Z.apk` to a GitHub Release. Obtainium on the phone picks it up from there.
+
+Required repository secrets (Settings > Secrets and variables > Actions): `KEYSTORE_BASE64` (base64 of the keystore file), `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`, `LASTFM_API_KEY`, `LASTFM_API_SECRET`.
