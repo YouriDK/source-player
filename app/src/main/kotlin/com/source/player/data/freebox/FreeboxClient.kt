@@ -357,10 +357,13 @@ internal fun FreeboxError.toException(context: String): IOException = when (this
     }
     is FreeboxError.Api -> when {
         isAuthError() -> FreeboxAuthException("Freebox auth error ($context): $code")
-        code == "insufficient_rights" || code == "access_denied" -> FreeboxPermissionException(
-            "The Freebox refused the file operation ($code): allow \"Accès au gestionnaire de " +
+        code == "insufficient_rights" -> FreeboxPermissionException(
+            "The Freebox refused the file operation: allow \"Accès au gestionnaire de " +
                 "fichiers\" for Source in Freebox OS (Gestion des accès > Applications)",
         )
+        code == "access_denied" -> FreeboxPermissionException("The Freebox denied access to this file ($context)")
+        code == "destination_conflict" -> IOException("An item with this name already exists ($context)")
+        code == "disk_full" -> IOException("The Freebox disk is full")
         code.contains("not_found") || code.contains("no_such") -> FileNotFoundException("$context: $code")
         else -> IOException("$code: ${message ?: context}")
     }
