@@ -18,6 +18,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
@@ -34,6 +36,9 @@ import com.source.player.ui.components.BreadcrumbChip
 import com.source.player.ui.components.BrowserEmptyState
 import com.source.player.ui.components.BrowserFolderRow
 import com.source.player.ui.components.BrowserTrackRow
+import com.source.player.ui.components.ConfirmTrashDialog
+import com.source.player.ui.components.FolderPickerSheet
+import com.source.player.ui.components.SelectionActionBar
 import com.source.player.ui.components.Hairline
 import com.source.player.ui.components.SectionKicker
 import com.source.player.ui.components.openMusicFolderPicker
@@ -67,8 +72,16 @@ fun FreeboxScreen(
     val suggestions by vm.suggestions.collectAsStateWithLifecycle()
     val chosen by vm.chosen.collectAsStateWithLifecycle()
 
+    val selection by vm.selection.collectAsStateWithLifecycle()
+    val busy by vm.busy.collectAsStateWithLifecycle()
+    val picker by vm.picker.collectAsStateWithLifecycle()
+
     val picking = vm.mode == FreeboxBrowseMode.PICK
+    val selecting = !picking && selection.isNotEmpty()
     var sheetTrack by remember { mutableStateOf<RemoteEntry?>(null) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(Unit) { vm.messages.collect { snackbar.showSnackbar(it) } }
 
     val colors = MaterialTheme.sourceColors
     val text = MaterialTheme.sourceText
@@ -77,11 +90,21 @@ fun FreeboxScreen(
     LaunchedEffect(chosen) { if (chosen) navController.popBackStack() }
 
     BackHandler(enabled = breadcrumbs.size > 1) { vm.goUp() }
+    // Declared last so it wins: Back first leaves selection mode.
+    BackHandler(enabled = selecting) { vm.clearSelection() }
 
     Box(Modifier.fillMaxSize().systemBarsPadding().background(colors.bg)) {
         Column(Modifier.fillMaxSize()) {
             // Header ------------------------------------------------
-            Row(
+            if (selecting) {
+                SelectionActionBar(
+                        count = selection.size,
+                        busy = busy,
+                        onMove = { vm.openMovePicker() },
+                        onDelete = { confirmDelete = true },
+                        onCancel = { vm.clearSelection() },
+                )
+            } else Row(
                     modifier =
                             Modifier.fillMaxWidth()
                                     .padding(start = 24.dp, end = 12.dp, top = 14.dp, bottom = 8.dp),
@@ -222,12 +245,39 @@ fun FreeboxScreen(
                                             onPlayAll = { vm.playAll() },
                                             onShuffle = { vm.shuffleAll() },
                                             onQueueFolder = { vm.addFolderToQueue() },
+                                            selection = if (selecting) selection else null,
+                                            onStartSelection = { vm.startSelection(it) },
+                                            onToggleSelection = { vm.toggleSelection(it) },
                                     )
                                 }
                     }
                 }
             }
         }
+
+        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp))
+    }
+
+    if (confirmDelete) {
+        ConfirmTrashDialog(
+                count = selection.size,
+                onConfirm = {
+                    confirmDelete = false
+                    vm.deleteSelected()
+                },
+                onDismiss = { confirmDelete = false },
+        )
+    }
+
+    picker?.let { state ->
+        FolderPickerSheet(
+                state = state,
+                count = selection.size,
+                onOpen = { vm.pickerOpen(it) },
+                onCrumb = { vm.pickerCrumb(it) },
+                onChoose = { vm.confirmMove() },
+                onDismiss = { vm.dismissPicker() },
+        )
     }
 
     sheetTrack?.let { track ->
@@ -355,9 +405,14 @@ private fun FreeboxListing(
         onPlayAll: () -> Unit,
         onShuffle: () -> Unit,
         onQueueFolder: () -> Unit,
+        /** Selected urls while selecting, null otherwise. */
+        selection: Set<String>?,
+        onStartSelection: (RemoteEntry) -> Unit,
+        onToggleSelection: (RemoteEntry) -> Unit,
 ) {
     val colors = MaterialTheme.sourceColors
     val text = MaterialTheme.sourceText
+    val selecting = selection != null
 
     if (content.folders.isEmpty() && content.tracks.isEmpty()) {
         BrowserEmptyState(
@@ -372,7 +427,7 @@ private fun FreeboxListing(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 96.dp),
     ) {
-        if (content.tracks.isNotEmpty()) {
+        if (content.tracks.isNotEmpty() && !selecting) {
             item(key = "actions") {
                 Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 14.dp),
@@ -401,7 +456,9 @@ private fun FreeboxListing(
             BrowserFolderRow(
                     name = folder.name,
                     meta = null,
-                    onClick = { onOpen(folder) },
+                    onClick = { if (selecting) onToggleSelection(folder) else onOpen(folder) },
+                    onLongClick = { if (selecting) onToggleSelection(folder) else onStartSelection(folder) },
+                    selected = selection?.let { folder.url in it },
             )
         }
 
@@ -415,8 +472,10 @@ private fun FreeboxListing(
                     title = track.name,
                     subtitle = null,
                     trailingMeta = formatBytes(track.size),
-                    onClick = { onPlay(track) },
-                    onLongClick = { onMore(track) },
+                    onClick = { if (selecting) onToggleSelection(track) else onPlay(track) },
+                    // Long press selects; the queue options stay on the trailing button.
+                    onLongClick = { if (selecting) onToggleSelection(track) else onStartSelection(track) },
+                    selected = selection?.let { track.url in it },
                     trailing = {
                         IconButton(onClick = { onMore(track) }) {
                             Icon(HugeIcons.Queue, "Queue options", tint = colors.textMute)
