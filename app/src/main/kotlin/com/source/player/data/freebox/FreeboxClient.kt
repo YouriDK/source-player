@@ -183,6 +183,10 @@ class FreeboxClient @Inject constructor(
      * Lists a folder ([url] null = the disks). [requireLan] = true throws
      * [FreeboxUnreachableException] unless the box is reached over the LAN (the
      * library scan must never run over mobile data).
+     *
+     * Hidden and dot-named entries are dropped. That is also what keeps the Folders
+     * tab's trash (".corbeille" at the root of the music folder, see
+     * FreeboxFileOperations) out of the browser and out of the library scan.
      */
     suspend fun list(url: String?, requireLan: Boolean = false): List<RemoteEntry> {
         val parentUrl = url?.let { FreeboxPaths.toUrl(FreeboxPaths.toDisplayPath(it)) } ?: FreeboxPaths.SCHEME

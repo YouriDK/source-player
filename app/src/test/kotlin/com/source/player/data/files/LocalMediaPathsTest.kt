@@ -55,4 +55,13 @@ class LocalMediaPathsTest {
             "/storage/emulated/0/Music/B/b.mp3",
             LocalMediaPaths.movedPath("/storage/emulated/0/Music/A/b.mp3", "/storage/emulated/0/Music/B/"),
         )
+
+    @Test fun childFoldersListsNextSegmentOnce() =
+        assertEquals(
+            listOf("/v/Music/A", "/v/Music/b"),
+            LocalMediaPaths.childFolders(
+                listOf("/v/Music/b", "/v/Music/A/X", "/v/Music/A/Y", "/v/Musicals/Z", "/v/Music"),
+                "/v/Music",
+            ),
+        )
 }

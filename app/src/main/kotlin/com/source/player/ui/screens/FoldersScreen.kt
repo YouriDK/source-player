@@ -1,6 +1,10 @@
 package com.source.player.ui.screens
 
+import android.app.Activity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -19,6 +23,8 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
@@ -32,6 +38,8 @@ import com.source.player.data.db.entity.SongEntity
 import com.source.player.ui.components.BreadcrumbChip
 import com.source.player.ui.components.BrowserFolderRow
 import com.source.player.ui.components.BrowserTrackRow
+import com.source.player.ui.components.FolderPickerSheet
+import com.source.player.ui.components.SelectionActionBar
 import com.source.player.ui.components.Hairline
 import com.source.player.ui.components.MonoSize
 import com.source.player.ui.components.MonoText
@@ -108,6 +116,24 @@ fun FoldersScreen(
         val totalSongs by vm.totalSongsCount.collectAsStateWithLifecycle()
         val currentPath by vm.currentPath.collectAsStateWithLifecycle()
         val playlists by vm.playlists.collectAsStateWithLifecycle()
+        val selection by vm.selection.collectAsStateWithLifecycle()
+        val busy by vm.busy.collectAsStateWithLifecycle()
+        val picker by vm.picker.collectAsStateWithLifecycle()
+        val selecting = selection.isNotEmpty()
+
+        val snackbar = remember { SnackbarHostState() }
+        LaunchedEffect(Unit) { vm.messages.collect { snackbar.showSnackbar(it) } }
+
+        // System trash / write confirmation (API 30+): one dialog for the whole batch.
+        val consentLauncher =
+                rememberLauncherForActivityResult(
+                        ActivityResultContracts.StartIntentSenderForResult()
+                ) { result -> vm.onConsentResult(result.resultCode == Activity.RESULT_OK) }
+        LaunchedEffect(Unit) {
+                vm.consentRequests.collect { sender ->
+                        consentLauncher.launch(IntentSenderRequest.Builder(sender).build())
+                }
+        }
 
         var showPlaylistSheet by remember { mutableStateOf(false) }
         var showNewPlaylistDialog by remember { mutableStateOf(false) }
@@ -117,11 +143,21 @@ fun FoldersScreen(
         val text = MaterialTheme.sourceText
 
         BackHandler(enabled = breadcrumbs.size > 1) { vm.popBack() }
+        // Declared last so it wins: Back first leaves selection mode.
+        BackHandler(enabled = selecting) { vm.clearSelection() }
 
         Box(Modifier.fillMaxSize().systemBarsPadding().background(colors.bg)) {
                 Column(Modifier.fillMaxSize()) {
                         // Header ------------------------------------------------
-                        Row(
+                        if (selecting) {
+                                SelectionActionBar(
+                                        count = selection.size,
+                                        busy = busy,
+                                        onMove = { vm.openMovePicker() },
+                                        onDelete = { vm.deleteSelected() },
+                                        onCancel = { vm.clearSelection() },
+                                )
+                        } else Row(
                                 modifier =
                                         Modifier.fillMaxWidth()
                                                 .padding(
@@ -201,7 +237,7 @@ fun FoldersScreen(
                                 modifier = Modifier.fillMaxSize(),
                                 contentPadding = PaddingValues(bottom = 96.dp),
                         ) {
-                                if (currentPath != null && totalSongs > 0) {
+                                if (currentPath != null && totalSongs > 0 && !selecting) {
                                         item {
                                                 Row(
                                                         modifier =
@@ -255,8 +291,12 @@ fun FoldersScreen(
                                                 Hairline(
                                                         modifier = Modifier.padding(horizontal = 24.dp)
                                                 )
+                                                // Only songs are selectable in Local: a folder
+                                                // can't be moved whole through MediaStore (its
+                                                // covers and other files would stay behind).
                                                 FolderRow(
                                                         folder = folder,
+                                                        enabled = !selecting,
                                                         onClick = {
                                                                 vm.navigateTo(folder.path, folder.name)
                                                         },
@@ -274,7 +314,22 @@ fun FoldersScreen(
 
                                 items(songsInFolder, key = { it.id }) { song ->
                                         Hairline(modifier = Modifier.padding(horizontal = 24.dp))
-                                        SongRowInFolder(song = song, onClick = { vm.playSong(song) })
+                                        SongRowInFolder(
+                                                song = song,
+                                                onClick = {
+                                                        if (selecting) vm.toggleSelection(song)
+                                                        else vm.playSong(song)
+                                                },
+                                                onLongClick =
+                                                        if (!vm.canEditFiles) null
+                                                        else {
+                                                                {
+                                                                        if (selecting) vm.toggleSelection(song)
+                                                                        else vm.startSelection(song)
+                                                                }
+                                                        },
+                                                selected = if (selecting) song.id in selection else null,
+                                        )
                                 }
 
                                 if (subFolders.isEmpty() && songsInFolder.isEmpty()) {
@@ -311,6 +366,19 @@ fun FoldersScreen(
                                 }
                         }
                 }
+
+                SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp))
+        }
+
+        picker?.let { state ->
+                FolderPickerSheet(
+                        state = state,
+                        count = selection.size,
+                        onOpen = { vm.pickerOpen(it) },
+                        onCrumb = { vm.pickerCrumb(it) },
+                        onChoose = { vm.confirmMove() },
+                        onDismiss = { vm.dismissPicker() },
+                )
         }
 
         if (showPlaylistSheet) {
@@ -397,21 +465,28 @@ fun FoldersScreen(
 }
 
 @Composable
-private fun FolderRow(folder: FolderItem, onClick: () -> Unit) {
+private fun FolderRow(folder: FolderItem, onClick: () -> Unit, enabled: Boolean = true) {
         val meta = buildString {
                 if (folder.subFolderCount > 0) append("${folder.subFolderCount} folders")
                 if (folder.subFolderCount > 0 && folder.totalSongCount > 0) append(" · ")
                 if (folder.totalSongCount > 0) append("${folder.totalSongCount} songs")
         }
-        BrowserFolderRow(name = folder.name, meta = meta, onClick = onClick)
+        BrowserFolderRow(name = folder.name, meta = meta, onClick = onClick, enabled = enabled)
 }
 
 @Composable
-private fun SongRowInFolder(song: SongEntity, onClick: () -> Unit) {
+private fun SongRowInFolder(
+        song: SongEntity,
+        onClick: () -> Unit,
+        onLongClick: (() -> Unit)? = null,
+        selected: Boolean? = null,
+) {
         BrowserTrackRow(
                 title = song.title,
                 subtitle = song.artist,
                 trailingMeta = formatDuration(song.duration),
                 onClick = onClick,
+                onLongClick = onLongClick,
+                selected = selected,
         )
 }

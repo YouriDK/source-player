@@ -53,6 +53,21 @@ object LocalMediaPaths {
         return null
     }
 
+    /**
+     * Immediate sub-folders of [parent] among [folders] (absolute paths of folders that
+     * hold tracks): "/v/Music/A/B" makes "/v/Music" list "/v/Music/A". Sorted by name.
+     */
+    fun childFolders(folders: Collection<String>, parent: String): List<String> {
+        val prefix = parent.trimEnd('/') + "/"
+        return folders.asSequence()
+            .filter { it.startsWith(prefix) }
+            .map { prefix + it.removePrefix(prefix).substringBefore('/') }
+            .filter { it.length > prefix.length }
+            .distinct()
+            .sortedBy { it.substringAfterLast('/').lowercase() }
+            .toList()
+    }
+
     /** Path of the file [path] once moved into [destFolder] (MediaStore may still rename it). */
     fun movedPath(path: String, destFolder: String): String =
         destFolder.trimEnd('/') + "/" + path.substringAfterLast('/')
