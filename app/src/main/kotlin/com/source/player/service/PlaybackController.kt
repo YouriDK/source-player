@@ -10,6 +10,9 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.source.player.data.db.dao.SongDao
 import com.source.player.data.db.entity.SongEntity
+import com.source.player.data.files.LibraryFileChanges
+import com.source.player.data.files.LibraryFileEdits
+import com.source.player.data.files.QueueDecision
 import com.source.player.data.freebox.FreeboxPaths
 import com.source.player.data.lastfm.LastFmRepository
 import com.source.player.data.preferences.AppPreferences
@@ -357,6 +360,39 @@ constructor(
       return
     }
     c.removeMediaItem(index)
+    _queueIndex.value = c.currentMediaItemIndex
+  }
+
+  /**
+   * Aligns the queue on files moved or trashed from the Folders tab: trashed tracks leave
+   * the queue, moved ones point at their new location. The current track, when moved, is
+   * re-opened at the same position (a short re-buffer); when trashed, playback goes on
+   * with the next one, or stops if nothing is left.
+   */
+  fun applyFileChanges(changes: LibraryFileChanges) {
+    if (changes.isEmpty) return
+    maybePushHydratedQueueToController()
+    val c = controller ?: return
+    val currentIndex = c.currentMediaItemIndex
+    val position = c.currentPosition
+    val toRemove = ArrayList<Int>()
+    for (i in 0 until c.mediaItemCount) {
+      val item = c.getMediaItemAt(i)
+      val uri = item.localConfiguration?.uri?.toString()
+      when (val decision = LibraryFileEdits.decide(item.mediaId, uri, changes)) {
+        QueueDecision.Keep -> Unit
+        QueueDecision.Remove -> toRemove += i
+        is QueueDecision.Relocate -> {
+          c.replaceMediaItem(i, item.buildUpon().setMediaId(decision.mediaId).setUri(decision.uri).build())
+          if (i == currentIndex) c.seekTo(i, position)
+        }
+      }
+    }
+    if (toRemove.size == c.mediaItemCount) {
+      stopAndClear()
+      return
+    }
+    for (i in toRemove.asReversed()) c.removeMediaItem(i)
     _queueIndex.value = c.currentMediaItemIndex
   }
 

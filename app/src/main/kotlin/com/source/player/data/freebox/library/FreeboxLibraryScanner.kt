@@ -232,6 +232,22 @@ class FreeboxLibraryScanner @Inject constructor(
             Log.i(TAG, "Freebox library purged")
         }
 
+    /**
+     * Applies a move / trash made from the Folders tab straight to the index, without a
+     * rescan: drops [removedIds], writes [upserts] (relocated rows), then recomputes the
+     * albums / artists / genres. Serialized with passes and [purge] like any batch.
+     */
+    suspend fun applyFileChanges(removedIds: List<Long>, upserts: List<SongEntity>): Unit =
+        withContext(Dispatchers.IO + NonCancellable) {
+            writeMutex.withLock {
+                removedIds.chunked(DELETE_CHUNK).forEach { songDao.deleteByIds(it) }
+                if (upserts.isNotEmpty()) {
+                    songDao.upsertAll(upserts.map { it.copy(albumArtUri = artCache.uriFor(it.albumId) ?: it.albumArtUri) })
+                }
+                refreshAggregates()
+            }
+        }
+
     // ── Scan pass ─────────────────────────────────────────────────────────
 
     /** Why a pass stopped before reading every file. */
