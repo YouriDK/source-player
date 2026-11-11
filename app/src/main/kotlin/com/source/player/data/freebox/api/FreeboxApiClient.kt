@@ -7,6 +7,7 @@ import com.source.player.data.freebox.FreeboxError
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.timeout
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
@@ -37,8 +38,10 @@ import javax.inject.Named
 import javax.inject.Singleton
 
 /**
- * Thin typed wrapper over the read-only subset of the FreeboxOS HTTP API that Source
- * needs (discovery, pairing, login, fs/ls, /dl/). Stateless: callers provide the
+ * Thin typed wrapper over the subset of the FreeboxOS HTTP API that Source needs
+ * (discovery, pairing, login, fs/ls, /dl/, and the Folders tab's file operations:
+ * fs/mkdir, fs/rename, fs/mv + fs/tasks). There is deliberately no fs/rm: deleting
+ * from the Folders tab moves files to the music folder's trash instead. Stateless: callers provide the
  * resolved base URL (e.g. "http://mafreebox.freebox.fr/api/v16") and, where needed,
  * the session token. Session lifecycle lives in FreeboxSessionManager.
  *
@@ -153,6 +156,68 @@ class FreeboxApiClient @Inject constructor(
     }
 
     private val fileListSerializer = ListSerializer(FileInfoDto.serializer())
+
+    /**
+     * Creates [name] in [parentB64] (synchronous on the box). The result shape is not
+     * relied upon: callers rebuild the new path from parent + name.
+     */
+    suspend fun mkdir(base: String, sessionToken: String, parentB64: String, name: String): FbxResult<Unit> =
+        envelopeNullable<JsonElement>("$base/fs/mkdir/") { url ->
+            http.post(url) {
+                header(X_FBX_APP_AUTH, sessionToken)
+                contentType(ContentType.Application.Json)
+                setBody(json.encodeToString(MkdirRequestDto.serializer(), MkdirRequestDto(parentB64, name)))
+            }
+        }.map { }
+
+    /** Renames in place (synchronous); [newName] is a bare name, not a path. */
+    suspend fun rename(base: String, sessionToken: String, pathB64: String, newName: String): FbxResult<Unit> =
+        envelopeNullable<JsonElement>("$base/fs/rename/") { url ->
+            http.post(url) {
+                header(X_FBX_APP_AUTH, sessionToken)
+                contentType(ContentType.Application.Json)
+                setBody(json.encodeToString(RenameRequestDto.serializer(), RenameRequestDto(pathB64, newName)))
+            }
+        }.map { }
+
+    /**
+     * Starts an asynchronous move of [filesB64] into the folder [destB64]; returns the
+     * task to follow with [fsTask]. The box has no "fail on conflict" mode, so callers
+     * check the destination first; [mode] "skip" guarantees a race never overwrites.
+     */
+    suspend fun mv(
+        base: String,
+        sessionToken: String,
+        filesB64: List<String>,
+        destB64: String,
+        mode: String = FileOperationRequestDto.MODE_SKIP,
+    ): FbxResult<FsTaskDto> =
+        envelope("$base/fs/mv/") { url ->
+            http.post(url) {
+                header(X_FBX_APP_AUTH, sessionToken)
+                contentType(ContentType.Application.Json)
+                setBody(
+                    json.encodeToString(
+                        FileOperationRequestDto.serializer(),
+                        FileOperationRequestDto(files = filesB64, dst = destB64, mode = mode),
+                    ),
+                )
+            }
+        }
+
+    suspend fun fsTask(base: String, sessionToken: String, taskId: Int): FbxResult<FsTaskDto> =
+        envelope("$base/fs/tasks/$taskId") { url ->
+            http.get(url) { header(X_FBX_APP_AUTH, sessionToken) }
+        }
+
+    /**
+     * Forgets a finished task (the box keeps every task until told otherwise). This only
+     * drops the task record — it never touches files.
+     */
+    suspend fun deleteTask(base: String, sessionToken: String, taskId: Int): FbxResult<Unit> =
+        envelopeNullable<JsonElement>("$base/fs/tasks/$taskId") { url ->
+            http.delete(url) { header(X_FBX_APP_AUTH, sessionToken) }
+        }.map { }
 
     /** Raw file download via /dl/ into memory; the box honours Range requests on this endpoint. */
     suspend fun download(
