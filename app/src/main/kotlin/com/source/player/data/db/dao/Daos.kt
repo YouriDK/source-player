@@ -279,6 +279,29 @@ interface PlaylistDao {
 
   @Query("SELECT MAX(position) FROM playlist_songs WHERE playlistId = :playlistId")
   suspend fun maxPosition(playlistId: Long): Int?
+
+  /** Drops every playlist entry of [songIds] (their files were trashed). Chunk the ids (≤ 999). */
+  @Query("DELETE FROM playlist_songs WHERE songId IN (:songIds)")
+  suspend fun deleteEntriesForSongs(songIds: List<Long>)
+
+  /**
+   * Points the playlist entries of a moved song at its new row id. An entry already holding
+   * [newId] in the same playlist is kept and the leftover old one dropped.
+   */
+  @Transaction
+  suspend fun remapSongs(oldToNew: Map<Long, Long>) {
+    for ((oldId, newId) in oldToNew) {
+      if (oldId == newId) continue
+      remapSongIgnoringConflicts(oldId, newId)
+      deleteEntriesForSong(oldId)
+    }
+  }
+
+  @Query("UPDATE OR IGNORE playlist_songs SET songId = :newId WHERE songId = :oldId")
+  suspend fun remapSongIgnoringConflicts(oldId: Long, newId: Long)
+
+  @Query("DELETE FROM playlist_songs WHERE songId = :songId")
+  suspend fun deleteEntriesForSong(songId: Long)
 }
 
 // ---- Blacklist ----

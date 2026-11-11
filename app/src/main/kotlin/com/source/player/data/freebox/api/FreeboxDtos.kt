@@ -94,3 +94,49 @@ data class FileInfoDto(
 ) {
     val isDirectory: Boolean get() = type == "dir"
 }
+
+/** POST fs/mkdir/: [parent] is base64, [dirname] is a clear-text name. */
+@Serializable
+data class MkdirRequestDto(
+    val parent: String,
+    val dirname: String,
+)
+
+/** POST fs/rename/: [src] is base64, [dst] is the new clear-text name (no path). */
+@Serializable
+data class RenameRequestDto(
+    val src: String,
+    val dst: String,
+)
+
+/** Body of fs/mv/ (and the other multi-file operations). Paths are base64. */
+@Serializable
+data class FileOperationRequestDto(
+    val files: List<String>,
+    val dst: String? = null,
+    /** Conflict mode: "overwrite", "both", "recent" or "skip". Required by fs/mv on v16. */
+    val mode: String? = null,
+) {
+    companion object {
+        const val MODE_SKIP = "skip"
+    }
+}
+
+/**
+ * Asynchronous filesystem task (fs/mv returns one). Field presence varies by firmware;
+ * only id / state / error are relied upon.
+ */
+@Serializable
+data class FsTaskDto(
+    val id: Int,
+    val type: String? = null,
+    /** "queued", "running", "paused", "done" or "failed". */
+    val state: String? = null,
+    val error: String? = null,
+) {
+    val isDone: Boolean get() = state == "done"
+    val isFailed: Boolean get() = state == "failed"
+
+    /** The API reports error "none" on healthy tasks. */
+    val errorCode: String? get() = error?.takeIf { it.isNotEmpty() && it != "none" }
+}

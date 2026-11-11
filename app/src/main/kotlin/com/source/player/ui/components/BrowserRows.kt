@@ -59,24 +59,46 @@ fun BreadcrumbChip(
         }
 }
 
+/**
+ * [selected] non-null = the browser is in selection mode: the row shows a check mark
+ * instead of its icon and is tinted when selected.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun BrowserFolderRow(
         name: String,
         meta: String?,
         onClick: () -> Unit,
         icon: ImageVector = HugeIcons.Folder,
+        onLongClick: (() -> Unit)? = null,
+        selected: Boolean? = null,
+        enabled: Boolean = true,
 ) {
         val colors = MaterialTheme.sourceColors
         val text = MaterialTheme.sourceText
         Row(
                 modifier =
                         Modifier.fillMaxWidth()
-                                .clickable(onClick = onClick)
+                                .selectionBackground(selected)
+                                .combinedClickable(
+                                        enabled = enabled,
+                                        onClick = onClick,
+                                        onLongClick = onLongClick,
+                                )
                                 .padding(horizontal = 24.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-                Icon(icon, null, tint = colors.accent, modifier = Modifier.size(32.dp))
+                if (selected != null) {
+                        SelectionMark(selected, Modifier.size(32.dp))
+                } else {
+                        Icon(
+                                icon,
+                                null,
+                                tint = if (enabled) colors.accent else colors.textMute,
+                                modifier = Modifier.size(32.dp),
+                        )
+                }
                 Column(modifier = Modifier.weight(1f)) {
                         Text(
                                 name,
@@ -95,8 +117,26 @@ fun BrowserFolderRow(
                                 )
                         }
                 }
-                Text(text = "→", style = text.folderName17, color = colors.textMute)
+                if (selected == null) {
+                        Text(text = "→", style = text.folderName17, color = colors.textMute)
+                }
         }
+}
+
+@Composable
+private fun Modifier.selectionBackground(selected: Boolean?): Modifier =
+        if (selected == true) background(MaterialTheme.sourceColors.accent.copy(alpha = 0.14f)) else this
+
+/** Check mark of a row in selection mode: filled accent when selected, muted otherwise. */
+@Composable
+fun SelectionMark(selected: Boolean, modifier: Modifier = Modifier) {
+        val colors = MaterialTheme.sourceColors
+        Icon(
+                HugeIcons.CheckCircle,
+                if (selected) "Selected" else "Not selected",
+                tint = if (selected) colors.accent else colors.textMute.copy(alpha = 0.5f),
+                modifier = modifier,
+        )
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -108,12 +148,14 @@ fun BrowserTrackRow(
         onClick: () -> Unit,
         onLongClick: (() -> Unit)? = null,
         trailing: (@Composable () -> Unit)? = null,
+        selected: Boolean? = null,
 ) {
         val colors = MaterialTheme.sourceColors
         val text = MaterialTheme.sourceText
         Row(
                 modifier =
                         Modifier.fillMaxWidth()
+                                .selectionBackground(selected)
                                 .combinedClickable(onClick = onClick, onLongClick = onLongClick)
                                 .padding(
                                         start = 24.dp,
@@ -124,12 +166,16 @@ fun BrowserTrackRow(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-                Icon(
-                        HugeIcons.MusicNote,
-                        null,
-                        tint = colors.textMute,
-                        modifier = Modifier.size(18.dp),
-                )
+                if (selected != null) {
+                        SelectionMark(selected, Modifier.size(18.dp))
+                } else {
+                        Icon(
+                                HugeIcons.MusicNote,
+                                null,
+                                tint = colors.textMute,
+                                modifier = Modifier.size(18.dp),
+                        )
+                }
                 Column(modifier = Modifier.weight(1f)) {
                         Text(
                                 title,
@@ -151,6 +197,6 @@ fun BrowserTrackRow(
                 if (trailingMeta != null) {
                         MonoText(text = trailingMeta, color = colors.textMute, size = MonoSize.S10)
                 }
-                trailing?.invoke()
+                if (selected == null) trailing?.invoke()
         }
 }

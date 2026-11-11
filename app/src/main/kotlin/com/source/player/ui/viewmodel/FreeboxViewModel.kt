@@ -6,7 +6,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import com.source.player.data.files.FileOperationException
+import com.source.player.data.files.FreeboxFileOperations
 import com.source.player.data.freebox.FreeboxAudio
+import com.source.player.data.freebox.FreeboxPermissionException
+import com.source.player.data.freebox.FreeboxTaskTimeoutException
 import com.source.player.data.freebox.FreeboxAuthException
 import com.source.player.data.freebox.FreeboxClient
 import com.source.player.data.freebox.FreeboxFolder
@@ -15,6 +19,9 @@ import com.source.player.data.freebox.FreeboxUnreachableException
 import com.source.player.data.freebox.RemoteEntry
 import com.source.player.data.mode.LibraryModeRepository
 import com.source.player.service.PlaybackController
+import com.source.player.ui.components.FolderPickerState
+import com.source.player.ui.components.PickerCrumb
+import com.source.player.ui.components.PickerFolder
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.FileNotFoundException
 import javax.inject.Inject
@@ -23,6 +30,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -30,6 +38,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -79,6 +88,7 @@ constructor(
         private val client: FreeboxClient,
         private val controller: PlaybackController,
         private val libraryMode: LibraryModeRepository,
+        private val fileOps: FreeboxFileOperations,
         savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -124,6 +134,26 @@ constructor(
                         eldest: MutableMap.MutableEntry<String, FreeboxUiState.Content>?
                 ): Boolean = size > CACHE_SIZE
             }
+
+    // ---- Selection (Folders tab only) ----
+
+    private val _selection = MutableStateFlow<Set<String>>(emptySet())
+    /** Urls of the selected folders / tracks of the current folder; empty = not selecting. */
+    val selection: StateFlow<Set<String>> = _selection.asStateFlow()
+
+    private val _busy = MutableStateFlow(false)
+    /** A move / delete is running on the box. */
+    val busy: StateFlow<Boolean> = _busy.asStateFlow()
+
+    private val _messages = Channel<String>(Channel.BUFFERED)
+    /** One-shot snackbar messages (results and errors of move / delete). */
+    val messages = _messages.receiveAsFlow()
+
+    private val _picker = MutableStateFlow<FolderPickerState?>(null)
+    /** Move destination picker; null when closed. */
+    val picker: StateFlow<FolderPickerState?> = _picker.asStateFlow()
+    private var pickerUrl: String? = null
+    private var pickerJob: Job? = null
 
     private var loadJob: Job? = null
     private var suggestionsJob: Job? = null
@@ -193,6 +223,7 @@ constructor(
     private fun show(requested: FreeboxFolder?, useCache: Boolean) {
         // Never above the root: the music folder is the top of everything in Stream.
         val folder = if (isUnderRoot(requested)) requested else root
+        if (folder?.url != _currentFolder.value?.url) _selection.value = emptySet()
         _currentFolder.value = folder
         _breadcrumbs.value = breadcrumbsFor(folder)
         val key = folder?.url ?: ROOT.url
@@ -257,6 +288,135 @@ constructor(
     fun addToQueue(track: RemoteEntry) = controller.addToQueue(track.toMediaItem())
 
     fun addFolderToQueue() = currentTracks().forEach { controller.addToQueue(it.toMediaItem()) }
+
+    // ---- Selection, move, delete ----
+
+    /** Long press: enters selection mode with [entry] selected (Folders tab only). */
+    fun startSelection(entry: RemoteEntry) {
+        if (mode != FreeboxBrowseMode.MUSIC_FOLDER || _busy.value) return
+        _selection.value = _selection.value + entry.url
+    }
+
+    fun toggleSelection(entry: RemoteEntry) {
+        if (_busy.value) return
+        val current = _selection.value
+        _selection.value = if (entry.url in current) current - entry.url else current + entry.url
+    }
+
+    fun clearSelection() {
+        if (!_busy.value) _selection.value = emptySet()
+    }
+
+    private fun selectedEntries(): List<RemoteEntry> {
+        val content = _entries.value as? FreeboxUiState.Content ?: return emptyList()
+        val selected = _selection.value
+        return (content.folders + content.tracks).filter { it.url in selected }
+    }
+
+    /** Moves the selection to the music folder's trash (.corbeille); confirmed by the screen. */
+    fun deleteSelected() {
+        val musicRoot = root ?: return
+        val entries = selectedEntries()
+        if (entries.isEmpty() || _busy.value) return
+        runFileOperation(
+                success = { if (entries.size == 1) "Moved to the trash" else "${entries.size} items moved to the trash" },
+        ) { fileOps.trash(entries, musicRoot) }
+    }
+
+    fun openMovePicker() {
+        val musicRoot = root ?: return
+        if (_selection.value.isEmpty() || _busy.value) return
+        loadPicker(musicRoot.url)
+    }
+
+    fun pickerOpen(folder: PickerFolder) {
+        if (folder.enabled) loadPicker(folder.key)
+    }
+
+    fun pickerCrumb(index: Int) {
+        val crumb = _picker.value?.crumbs?.getOrNull(index) ?: return
+        loadPicker(crumb.key)
+    }
+
+    fun dismissPicker() {
+        pickerJob?.cancel()
+        _picker.value = null
+        pickerUrl = null
+    }
+
+    fun confirmMove() {
+        val musicRoot = root ?: return
+        val dest = pickerUrl ?: return
+        val entries = selectedEntries()
+        if (entries.isEmpty() || _busy.value) return
+        dismissPicker()
+        val destName = FreeboxPaths.name(dest).ifEmpty { musicRoot.name }
+        runFileOperation(
+                success = { if (entries.size == 1) "Moved to $destName" else "${entries.size} items moved to $destName" },
+        ) { fileOps.move(entries, dest, musicRoot) }
+    }
+
+    private fun loadPicker(url: String) {
+        val musicRoot = root ?: return
+        pickerUrl = url
+        val crumbs = breadcrumbsFor(FreeboxFolder(url, FreeboxPaths.toDisplayPath(url), FreeboxPaths.name(url)))
+                .map { PickerCrumb(it.url, it.name) }
+        val selected = _selection.value
+        val check = FreeboxFileOperations.checkMoveTarget(selectedEntries(), url, musicRoot.url)
+        _picker.value = FolderPickerState(crumbs = crumbs, folders = emptyList(), loading = true, canChoose = check == null, hint = check)
+        pickerJob?.cancel()
+        pickerJob =
+                viewModelScope.launch {
+                    val next =
+                            try {
+                                val listing = withContext(Dispatchers.IO) { client.list(url) }
+                                val folders =
+                                        listing.filter { it.isDirectory }
+                                                .sortedWith(compareBy(NaturalOrder) { it.name })
+                                                .map { PickerFolder(it.url, it.name, enabled = it.url !in selected) }
+                                _picker.value?.copy(folders = folders, loading = false)
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                _picker.value?.copy(loading = false, error = operationMessage(e), canChoose = false)
+                            }
+                    if (pickerUrl == url) _picker.value = next
+                }
+    }
+
+    private fun runFileOperation(
+            success: () -> String,
+            block: suspend () -> com.source.player.data.files.LibraryFileChanges,
+    ) {
+        _busy.value = true
+        viewModelScope.launch {
+            try {
+                val changes = block()
+                controller.applyFileChanges(changes)
+                _selection.value = emptySet()
+                _messages.send(success())
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _messages.send(operationMessage(e))
+            } finally {
+                _busy.value = false
+                // Whatever happened on the box, show its real state.
+                cache.clear()
+                show(_currentFolder.value, useCache = false)
+            }
+        }
+    }
+
+    private fun operationMessage(e: Exception): String =
+            when (e) {
+                is FileOperationException, is FreeboxPermissionException -> e.message ?: "Operation refused"
+                is FreeboxTaskTimeoutException -> "The Freebox is still working on it — refresh in a moment"
+                is FreeboxAuthException -> "Not connected to the Freebox — pair it in Settings"
+                is FreeboxUnreachableException -> "Can't reach the Freebox"
+                is FileNotFoundException -> "An item no longer exists — the list was refreshed"
+                else -> "Freebox error: ${e.message ?: e.javaClass.simpleName}"
+            }
 
     // ---- Music folder picker ----
 

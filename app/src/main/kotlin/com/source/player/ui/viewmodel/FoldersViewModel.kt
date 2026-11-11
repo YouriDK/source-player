@@ -1,5 +1,7 @@
 package com.source.player.ui.viewmodel
 
+import android.content.IntentSender
+import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.source.player.data.db.dao.PlaylistDao
@@ -7,12 +9,20 @@ import com.source.player.data.db.dao.SongDao
 import com.source.player.data.db.entity.PlaylistEntity
 import com.source.player.data.db.entity.SOURCE_LOCAL
 import com.source.player.data.db.entity.SongEntity
+import com.source.player.data.files.LibraryFileChanges
+import com.source.player.data.files.LocalFileOperations
+import com.source.player.data.files.LocalMediaPaths
 import com.source.player.data.preferences.AppPreferences
 import com.source.player.service.PlaybackController
+import com.source.player.ui.components.FolderPickerState
+import com.source.player.ui.components.PickerCrumb
+import com.source.player.ui.components.PickerFolder
 import com.source.player.ui.screens.FolderItem
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -25,6 +35,7 @@ constructor(
         private val playlistDao: PlaylistDao,
         private val controller: PlaybackController,
         private val prefs: AppPreferences,
+        private val fileOps: LocalFileOperations,
 ) : ViewModel() {
 
     // Current path being browsed — null = find the common root
@@ -175,7 +186,196 @@ constructor(
         viewModelScope.launch { prefs.setLastFolderPath(path) }
     }
 
+    // ---- Selection, move, delete (songs of the current folder) ----
+
+    /**
+     * Move / delete go through MediaStore write and trash requests, which only exist on
+     * API 30+. Below that, selection mode is not offered at all: the legacy storage
+     * permission would allow it, but only as a permanent delete with no system trash.
+     */
+    val canEditFiles: Boolean = fileOps.isSupported
+
+    private val _selection = MutableStateFlow<Set<Long>>(emptySet())
+    /** Ids of the selected songs; empty = not selecting. */
+    val selection: StateFlow<Set<Long>> = _selection.asStateFlow()
+
+    private val _busy = MutableStateFlow(false)
+    val busy: StateFlow<Boolean> = _busy.asStateFlow()
+
+    private val _messages = Channel<String>(Channel.BUFFERED)
+    /** One-shot snackbar messages. */
+    val messages = _messages.receiveAsFlow()
+
+    private val _consentRequests = Channel<IntentSender>(Channel.BUFFERED)
+    /** System confirmation dialogs (trash / write requests) for the screen to launch. */
+    val consentRequests = _consentRequests.receiveAsFlow()
+
+    /** Work waiting for the user's answer to the system dialog. */
+    private var pendingConsent: (suspend () -> Unit)? = null
+
+    private val _picker = MutableStateFlow<FolderPickerState?>(null)
+    val picker: StateFlow<FolderPickerState?> = _picker.asStateFlow()
+    private var pickerPath: String? = null
+
+    fun startSelection(song: SongEntity) {
+        if (!canEditFiles || _busy.value) return
+        _selection.value = _selection.value + song.id
+    }
+
+    fun toggleSelection(song: SongEntity) {
+        if (_busy.value) return
+        val current = _selection.value
+        _selection.value = if (song.id in current) current - song.id else current + song.id
+    }
+
+    fun clearSelection() {
+        if (!_busy.value) _selection.value = emptySet()
+    }
+
+    private fun selectedSongs(): List<SongEntity> {
+        val ids = _selection.value
+        return songsInFolder.value.filter { it.id in ids }
+    }
+
+    /** Asks Android to move the selection to the system trash (one dialog for the batch). */
+    fun deleteSelected() {
+        val songs = selectedSongs()
+        if (songs.isEmpty() || _busy.value || Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        viewModelScope.launch {
+            requestConsent(
+                    request = { fileOps.trashRequest(songs) },
+                    onGranted = {
+                        val changes = fileOps.onTrashed(songs)
+                        finish(changes, if (songs.size == 1) "Moved to the trash" else "${songs.size} songs moved to the trash")
+                    },
+            )
+        }
+    }
+
+    fun openMovePicker() {
+        val songs = selectedSongs()
+        if (songs.isEmpty() || _busy.value) return
+        val volume = LocalMediaPaths.volumeRoot(songs.first().path)
+        if (volume == null || songs.any { LocalMediaPaths.volumeRoot(it.path) != volume }) {
+            viewModelScope.launch { _messages.send("Select songs from a single storage volume") }
+            return
+        }
+        loadPicker(volume)
+    }
+
+    fun pickerOpen(folder: PickerFolder) = loadPicker(folder.key)
+
+    fun pickerCrumb(index: Int) {
+        _picker.value?.crumbs?.getOrNull(index)?.let { loadPicker(it.key) }
+    }
+
+    fun dismissPicker() {
+        _picker.value = null
+        pickerPath = null
+    }
+
+    fun confirmMove() {
+        val dest = pickerPath ?: return
+        val songs = selectedSongs()
+        if (songs.isEmpty() || _busy.value || Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        dismissPicker()
+        viewModelScope.launch {
+            val refusal = fileOps.checkMove(songs, dest)
+            if (refusal != null) {
+                _messages.send(refusal)
+                return@launch
+            }
+            requestConsent(
+                    request = { fileOps.writeRequest(songs) },
+                    onGranted = {
+                        val outcome = fileOps.move(songs, dest)
+                        val moved = songs.size - outcome.failed
+                        val name = dest.substringAfterLast('/')
+                        val message =
+                                when {
+                                    outcome.failed == 0 && moved == 1 -> "Moved to $name"
+                                    outcome.failed == 0 -> "$moved songs moved to $name"
+                                    moved == 0 -> "Android refused to move the files"
+                                    else -> "$moved moved to $name, ${outcome.failed} failed"
+                                }
+                        finish(outcome.changes, message)
+                    },
+            )
+        }
+    }
+
+    /** Called by the screen once the system dialog answered. */
+    fun onConsentResult(granted: Boolean) {
+        val work = pendingConsent ?: return
+        pendingConsent = null
+        if (!granted) {
+            _busy.value = false
+            viewModelScope.launch { _messages.send("Cancelled — nothing was changed") }
+            return
+        }
+        viewModelScope.launch {
+            try {
+                work()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _messages.send("Couldn't change the files: ${e.message ?: e.javaClass.simpleName}")
+            } finally {
+                _busy.value = false
+            }
+        }
+    }
+
+    private suspend fun requestConsent(request: suspend () -> IntentSender, onGranted: suspend () -> Unit) {
+        _busy.value = true
+        try {
+            val sender = request()
+            pendingConsent = onGranted
+            _consentRequests.send(sender)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            _busy.value = false
+            _messages.send("Android refused the request: ${e.message ?: e.javaClass.simpleName}")
+        }
+    }
+
+    private suspend fun finish(changes: LibraryFileChanges, message: String) {
+        controller.applyFileChanges(changes)
+        _selection.value = emptySet()
+        _messages.send(message)
+    }
+
+    private fun loadPicker(path: String) {
+        val songs = selectedSongs()
+        val volume = LocalMediaPaths.volumeRoot(path) ?: return
+        pickerPath = path
+        val folders = allSongs.value.mapTo(HashSet()) { it.folderPath }
+        val crumbs = ArrayList<PickerCrumb>()
+        crumbs += PickerCrumb(volume, volumeLabel(volume))
+        var cumulative = volume
+        for (segment in path.removePrefix(volume).split('/').filter { it.isNotEmpty() }) {
+            cumulative = "$cumulative/$segment"
+            crumbs += PickerCrumb(cumulative, segment)
+        }
+        val refusal = LocalMediaPaths.checkMoveTarget(songs.map { it.path }, path)
+        _picker.value =
+                FolderPickerState(
+                        crumbs = crumbs,
+                        folders =
+                                LocalMediaPaths.childFolders(folders, path).map {
+                                    PickerFolder(it, it.substringAfterLast('/'))
+                                },
+                        canChoose = refusal == null,
+                        hint = refusal,
+                )
+    }
+
+    private fun volumeLabel(volume: String): String =
+            if (volume.startsWith("/storage/emulated/")) "Phone" else volume.substringAfterLast('/')
+
     fun navigateTo(path: String, name: String) {
+        _selection.value = emptySet()
         _currentPath.value = path
         persistPath(path)
         val current = _breadcrumbs.value.toMutableList()
@@ -190,6 +390,7 @@ constructor(
     }
 
     fun navigateToRoot() {
+        _selection.value = emptySet()
         _currentPath.value = null
         persistPath(null)
         _breadcrumbs.value = listOf("Root" to null)
@@ -204,6 +405,7 @@ constructor(
     fun navigateToBreadcrumb(index: Int) {
         val crumbs = _breadcrumbs.value
         if (index >= crumbs.size) return
+        _selection.value = emptySet()
         val (_, path) = crumbs[index]
         _currentPath.value = path
         persistPath(path)
